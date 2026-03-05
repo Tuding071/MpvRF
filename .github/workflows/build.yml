@@ -72,6 +72,18 @@ jobs:
           chmod +x gradlew
 
       # ============================================
+      # GENERATE GRADLE.PROPERTIES (Fixes AndroidX error)
+      # ============================================
+      - name: Generate gradle.properties
+        run: |
+          cat > gradle.properties << 'EOF'
+          android.useAndroidX=true
+          android.enableJetifier=true
+          kotlin.code.style=official
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          EOF
+
+      # ============================================
       # GENERATE ALL BUILD FILES
       # ============================================
       - name: Generate settings.gradle.kts
