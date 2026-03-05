@@ -22,12 +22,16 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -39,8 +43,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -51,22 +53,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import android.content.Intent
 import android.net.Uri
 import kotlin.math.abs
-
-// ============================================
-// REPLACED seeker with Material3 Slider
-// ============================================
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-
-// ============================================
-// MPV CONNECTION
-// ============================================
-import is.xyz.mpv.MPVLib
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.collect
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import `is`.xyz.mpv.MPVLib
 
 // ============================================
 // PLAYER VIEWMODEL
@@ -125,7 +116,7 @@ class PlayerViewModel : ViewModel() {
     }
 
     fun cleanup() {
-        // Cleanup if needed
+        MPVLib.destroy()
     }
 
     private fun updateFileName() {
@@ -186,7 +177,7 @@ private fun formatTimeSimple(seconds: Double): String {
 }
 
 // ============================================
-// UPDATED PROGRESS BAR USING MATERIAL3 SLIDER
+// PROGRESS BAR USING MATERIAL3 SLIDER
 // ============================================
 @Composable
 fun SimpleDraggableProgressBar(
@@ -200,7 +191,6 @@ fun SimpleDraggableProgressBar(
     var sliderPosition by remember { mutableStateOf(position) }
     var isDragging by remember { mutableStateOf(false) }
     
-    // Update slider position when video position changes (but not during drag)
     LaunchedEffect(position, isDragging) {
         if (!isDragging) {
             sliderPosition = position
@@ -233,7 +223,7 @@ fun SimpleDraggableProgressBar(
 }
 
 // ============================================
-// YOUR ORIGINAL PLAYER OVERLAY (UNCHANGED)
+// PLAYER OVERLAY
 // ============================================
 @Composable
 fun PlayerOverlay(
@@ -519,74 +509,113 @@ fun PlayerOverlay(
         // MAIN GESTURE AREA
         Box(modifier = Modifier.fillMaxSize()) {
             // TOP 5% - Ignore
-            Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.05f).align(Alignment.TopStart))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.05f)
+                    .align(Alignment.TopStart)
+            )
             
             // CENTER AREA
-            Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.95f).align(Alignment.BottomStart)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.95f)
+                    .align(Alignment.BottomStart)
+            ) {
                 // LEFT 5% - Ignore
-                Box(modifier = Modifier.fillMaxWidth(0.05f).fillMaxHeight().align(Alignment.CenterStart))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.05f)
+                        .fillMaxHeight()
+                        .align(Alignment.CenterStart)
+                )
                 
                 // CENTER 90% - All gestures
-                Box(modifier = Modifier
-                    .fillMaxWidth(0.9f)
-                    .fillMaxHeight()
-                    .align(Alignment.Center)
-                    .pointerInteropFilter { event ->
-                        when (event.action) {
-                            MotionEvent.ACTION_DOWN -> {
-                                touchStartX = event.x
-                                touchStartY = event.y
-                                startLongTapDetection()
-                                true
-                            }
-                            MotionEvent.ACTION_MOVE -> {
-                                if (!isHorizontalSwipe && !isVerticalSwipe && !isLongTap) {
-                                    when (checkForSwipeDirection(event.x, event.y)) {
-                                        "horizontal" -> startHorizontalSeeking(event.x)
-                                        "vertical" -> startVerticalSwipe(event.y)
-                                    }
-                                } else if (isHorizontalSwipe) {
-                                    handleHorizontalSeeking(event.x)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .fillMaxHeight()
+                        .align(Alignment.Center)
+                        .pointerInteropFilter { event ->
+                            when (event.action) {
+                                MotionEvent.ACTION_DOWN -> {
+                                    touchStartX = event.x
+                                    touchStartY = event.y
+                                    startLongTapDetection()
+                                    true
                                 }
-                                true
+                                MotionEvent.ACTION_MOVE -> {
+                                    if (!isHorizontalSwipe && !isVerticalSwipe && !isLongTap) {
+                                        when (checkForSwipeDirection(event.x, event.y)) {
+                                            "horizontal" -> startHorizontalSeeking(event.x)
+                                            "vertical" -> startVerticalSwipe(event.y)
+                                        }
+                                    } else if (isHorizontalSwipe) {
+                                        handleHorizontalSeeking(event.x)
+                                    }
+                                    true
+                                }
+                                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                                    endTouch()
+                                    true
+                                }
+                                else -> false
                             }
-                            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                                endTouch()
-                                true
-                            }
-                            else -> false
                         }
-                    }
                 )
                 
                 // RIGHT 5% - Ignore
-                Box(modifier = Modifier.fillMaxWidth(0.05f).fillMaxHeight().align(Alignment.CenterEnd))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.05f)
+                        .fillMaxHeight()
+                        .align(Alignment.CenterEnd)
+                )
             }
         }
         
         // BOTTOM SEEK BAR
         if (showSeekbar) {
-            Box(modifier = Modifier
-                .fillMaxWidth()
-                .height(70.dp)
-                .align(Alignment.BottomStart)
-                .padding(horizontal = 60.dp)
-                .offset(y = 3.dp)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(70.dp)
+                    .align(Alignment.BottomStart)
+                    .padding(horizontal = 60.dp)
+                    .offset(y = 3.dp)
             ) {
-                Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(modifier = Modifier.fillMaxWidth().wrapContentHeight()) {
-                        Row(modifier = Modifier.align(Alignment.CenterStart)) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .wrapContentHeight()
+                    ) {
+                        Row(
+                            modifier = Modifier.align(Alignment.CenterStart)
+                        ) {
                             Text(
                                 text = if (isSeeking || isDragging) "$seekTargetTime / $totalTime" 
                                        else "$currentTime / $totalTime",
-                                style = TextStyle(color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium),
+                                style = TextStyle(
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium
+                                ),
                                 modifier = Modifier
                                     .background(Color.DarkGray.copy(alpha = 0.8f))
                                     .padding(horizontal = 12.dp, vertical = 4.dp)
                             )
                         }
                     }
-                    Box(modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                    ) {
                         SimpleDraggableProgressBar(
                             position = seekbarPosition,
                             duration = seekbarDuration,
@@ -604,7 +633,11 @@ fun PlayerOverlay(
         if (showVideoInfo) {
             Text(
                 text = fileName,
-                style = TextStyle(color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium),
+                style = TextStyle(
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium
+                ),
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .offset(x = 60.dp, y = 20.dp)
@@ -614,32 +647,46 @@ fun PlayerOverlay(
         }
         
         // FEEDBACK AREA
-        Box(modifier = Modifier.align(Alignment.TopCenter).offset(y = 80.dp)) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .offset(y = 80.dp)
+        ) {
             when {
                 showVolumeFeedbackState -> Text(
                     text = "Volume: ${(viewModel.currentVolume.value.toFloat() / viewModel.maxVolume * 100).toInt()}%",
                     style = TextStyle(color = Color.White, fontSize = 14.sp),
-                    modifier = Modifier.background(Color.DarkGray).padding(8.dp)
+                    modifier = Modifier
+                        .background(Color.DarkGray)
+                        .padding(8.dp)
                 )
                 isSpeedingUp -> Text(
                     text = "2X",
                     style = TextStyle(color = Color.White, fontSize = 14.sp),
-                    modifier = Modifier.background(Color.DarkGray).padding(8.dp)
+                    modifier = Modifier
+                        .background(Color.DarkGray)
+                        .padding(8.dp)
                 )
                 showQuickSeekFeedback -> Text(
                     text = quickSeekFeedbackText,
                     style = TextStyle(color = Color.White, fontSize = 14.sp),
-                    modifier = Modifier.background(Color.DarkGray).padding(8.dp)
+                    modifier = Modifier
+                        .background(Color.DarkGray)
+                        .padding(8.dp)
                 )
                 showSeekTime -> Text(
                     text = if (seekDirection.isNotEmpty()) "$seekTargetTime $seekDirection" else seekTargetTime,
                     style = TextStyle(color = Color.White, fontSize = 14.sp),
-                    modifier = Modifier.background(Color.DarkGray).padding(8.dp)
+                    modifier = Modifier
+                        .background(Color.DarkGray)
+                        .padding(8.dp)
                 )
                 showPlaybackFeedback -> Text(
                     text = playbackFeedbackText,
                     style = TextStyle(color = Color.White, fontSize = 14.sp),
-                    modifier = Modifier.background(Color.DarkGray).padding(8.dp)
+                    modifier = Modifier
+                        .background(Color.DarkGray)
+                        .padding(8.dp)
                 )
             }
         }
