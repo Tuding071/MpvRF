@@ -223,9 +223,9 @@ fun SimpleDraggableProgressBar(
 }
 
 // ============================================
-// PLAYER OVERLAY - WITH EXPERIMENTAL API ANNOTATION
+// PLAYER OVERLAY - WITH MULTIPLE OPTIN ANNOTATIONS
 // ============================================
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun PlayerOverlay(
     viewModel: PlayerViewModel,
