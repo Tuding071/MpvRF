@@ -68,7 +68,7 @@ jobs:
           EOF
 
       # ------------------------------------------------------------
-      # app/build.gradle.kts (minSdk = 26)
+      # app/build.gradle.kts (minSdk = 26, proper comments)
       # ------------------------------------------------------------
       - name: Create app/build.gradle.kts
         run: |
@@ -84,7 +84,7 @@ jobs:
 
               defaultConfig {
                   applicationId = "com.yourapp"
-                  minSdk = 26          # FIXED: was 21
+                  minSdk = 26
                   targetSdk = 34
                   versionCode = 1
                   versionName = "1.0"
@@ -124,7 +124,7 @@ jobs:
               // mpv AAR
               implementation("dev.jdtech.mpv:libmpv:0.5.1")
 
-              // Kotlin immutable collections (optional)
+              // Kotlin immutable collections
               implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
           }
           EOF
