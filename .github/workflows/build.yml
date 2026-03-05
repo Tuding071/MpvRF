@@ -115,7 +115,10 @@ jobs:
           }
           EOF
 
-      - name: Generate build.gradle.kts (App) - UPDATED WITH ALL DEPENDENCIES
+      # ============================================
+      # GENERATE build.gradle.kts (App) - WITH COMPILER FLAGS FIX
+      # ============================================
+      - name: Generate build.gradle.kts (App) - WITH COMPILER FLAGS
         run: |
           cat > app/build.gradle.kts << 'EOF'
           plugins {
@@ -156,6 +159,15 @@ jobs:
 
               kotlinOptions {
                   jvmTarget = "17"
+                  // Opt-in to experimental APIs and suppress warnings
+                  freeCompilerArgs += listOf(
+                      "-Xopt-in=kotlin.RequiresOptIn",
+                      "-Xopt-in=androidx.compose.foundation.ExperimentalFoundationApi",
+                      "-Xopt-in=androidx.compose.ui.ExperimentalComposeUiApi",
+                      "-Xopt-in=androidx.compose.animation.ExperimentalAnimationApi",
+                      "-Xopt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+                      "-nowarn"  // This tells the compiler not to fail on warnings
+                  )
               }
 
               buildFeatures {
@@ -193,7 +205,7 @@ jobs:
               // Immutable collections
               implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
               
-              // Debug dependencies (not included in release)
+              // Debug dependencies
               debugImplementation("androidx.compose.ui:ui-tooling")
               debugImplementation("androidx.compose.ui:ui-test-manifest")
           }
