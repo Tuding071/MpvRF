@@ -24,7 +24,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       # ------------------------------------------------------------
-      # Create the entire project structure and Gradle files
+      # Create project structure and Gradle files
       # ------------------------------------------------------------
       - name: Create project directories
         run: |
@@ -32,7 +32,7 @@ jobs:
           mkdir -p app/src/main/res/values
           mkdir -p app/libs
 
-      - name: Create settings.gradle.kts
+      - name: Create settings.gradle.kts (with JitPack)
         run: |
           cat > settings.gradle.kts << 'EOF'
           pluginManagement {
@@ -46,6 +46,7 @@ jobs:
               repositories {
                   google()
                   mavenCentral()
+                  maven { url = uri("https://jitpack.io") }  // Added JitPack for seeker
               }
           }
           rootProject.name = "MpvRF"
@@ -61,7 +62,7 @@ jobs:
           }
           EOF
 
-      - name: Create app/build.gradle.kts
+      - name: Create app/build.gradle.kts (with correct seeker dependency)
         run: |
           cat > app/build.gradle.kts << 'EOF'
           plugins {
@@ -115,8 +116,8 @@ jobs:
               // mpv AAR
               implementation("dev.jdtech.mpv:libmpv:0.5.1")
 
-              // Custom seekbar used in PlayerOverlay
-              implementation("dev.vivvvek:seeker:0.1.0")
+              // Correct seeker dependency from JitPack
+              implementation("com.github.vivvvek:Seeker:1.0.0")
 
               // Kotlin immutable collections
               implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
@@ -140,7 +141,7 @@ jobs:
           EOF
 
       # ------------------------------------------------------------
-      # Generate Gradle Wrapper using pre-installed Gradle
+      # Generate Gradle Wrapper
       # ------------------------------------------------------------
       - name: Generate Gradle Wrapper
         run: gradle wrapper --gradle-version 8.4
