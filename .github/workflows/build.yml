@@ -1,9 +1,14 @@
 name: Build MpvRF APK
 
+# MANUAL TRIGGER ONLY - Click "Run workflow" in GitHub Actions tab
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'APK version name'
+        required: false
+        default: '1.0'
+        type: string
 
 jobs:
   build:
@@ -98,7 +103,7 @@ jobs:
           }
           EOF
 
-      - name: Generate build.gradle.kts (App) - FIXED VERSION
+      - name: Generate build.gradle.kts (App)
         run: |
           cat > app/build.gradle.kts << 'EOF'
           plugins {
@@ -115,7 +120,7 @@ jobs:
                   minSdk = 21
                   targetSdk = 34
                   versionCode = 1
-                  versionName = "1.0"
+                  versionName = "${{ github.event.inputs.version_name || '1.0' }}"
 
                   ndk {
                       abiFilters += listOf("arm64-v8a")
@@ -151,22 +156,15 @@ jobs:
           }
 
           dependencies {
-              // Core
               implementation("androidx.core:core-ktx:1.12.0")
               implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
               implementation("androidx.activity:activity-compose:1.8.2")
-
-              // Compose
               implementation(platform("androidx.compose:compose-bom:2024.04.01"))
               implementation("androidx.compose.ui:ui")
               implementation("androidx.compose.ui:ui-graphics")
               implementation("androidx.compose.ui:ui-tooling-preview")
               implementation("androidx.compose.material3:material3")
-
-              // Coroutines
               implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-              
-              // For your progress bar
               implementation("dev.vivvvek:seeker:1.0.2")
           }
           EOF
@@ -189,9 +187,7 @@ jobs:
                   System.loadLibrary("c++_shared");
                   try {
                       System.loadLibrary("player");
-                  } catch (Throwable t) {
-                      // Optional, ignore if not present
-                  }
+                  } catch (Throwable t) {}
               }
 
               public static native void create(Context context);
@@ -273,16 +269,13 @@ jobs:
                           MPVLib.attachSurface(surface)
                           onInitialized?.invoke()
                       }
-
                       override fun onSurfaceTextureSizeChanged(surfaceTexture: android.graphics.SurfaceTexture, width: Int, height: Int) {}
-
                       override fun onSurfaceTextureDestroyed(surfaceTexture: android.graphics.SurfaceTexture): Boolean {
                           MPVLib.detachSurface()
                           surface?.release()
                           surface = null
                           return true
                       }
-
                       override fun onSurfaceTextureUpdated(surfaceTexture: android.graphics.SurfaceTexture) {}
                   }
               }
