@@ -29,8 +29,88 @@ jobs:
       - name: Create project directories
         run: |
           mkdir -p app/src/main/java/com/yourapp
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/mipmap-hdpi
+          mkdir -p app/src/main/res/mipmap-mdpi
+          mkdir -p app/src/main/res/mipmap-xhdpi
+          mkdir -p app/src/main/res/mipmap-xxhdpi
+          mkdir -p app/src/main/res/mipmap-xxxhdpi
           mkdir -p app/src/main/res/values
           mkdir -p app/libs
+
+      # ------------------------------------------------------------
+      # Create launcher icon (simple vector drawable)
+      # ------------------------------------------------------------
+      - name: Create launcher icon
+        run: |
+          cat > app/src/main/res/drawable/ic_launcher.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path
+                  android:fillColor="#2196F3"
+                  android:pathData="M0,0h108v108h-108z" />
+              <path
+                  android:fillColor="#FFFFFF"
+                  android:pathData="M54,27 L81,54 L54,81 L27,54 L54,27" />
+          </vector>
+          EOF
+
+      # Copy the same icon to all mipmap folders
+      - name: Copy icon to mipmap folders
+        run: |
+          cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-hdpi/ic_launcher.xml
+          cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-mdpi/ic_launcher.xml
+          cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-xhdpi/ic_launcher.xml
+          cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-xxhdpi/ic_launcher.xml
+          cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-xxxhdpi/ic_launcher.xml
+
+      # ------------------------------------------------------------
+      # Create colors.xml
+      # ------------------------------------------------------------
+      - name: Create colors.xml
+        run: |
+          cat > app/src/main/res/values/colors.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="purple_200">#FFBB86FC</color>
+              <color name="purple_500">#FF6200EE</color>
+              <color name="purple_700">#FF3700B3</color>
+              <color name="teal_200">#FF03DAC5</color>
+              <color name="teal_700">#FF018786</color>
+              <color name="black">#FF000000</color>
+              <color name="white">#FFFFFFFF</color>
+          </resources>
+          EOF
+
+      # ------------------------------------------------------------
+      # Create themes.xml
+      # ------------------------------------------------------------
+      - name: Create themes.xml
+        run: |
+          cat > app/src/main/res/values/themes.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Theme.AppCompat" parent="Theme.AppCompat.Light.DarkActionBar">
+                  <item name="colorPrimary">@color/purple_500</item>
+                  <item name="colorPrimaryDark">@color/purple_700</item>
+                  <item name="colorAccent">@color/teal_200</item>
+              </style>
+              
+              <style name="Theme.AppCompat.NoActionBar" parent="Theme.AppCompat">
+                  <item name="windowActionBar">false</item>
+                  <item name="windowNoTitle">true</item>
+              </style>
+              
+              <style name="Theme.AppCompat.Translucent" parent="Theme.AppCompat.NoActionBar">
+                  <item name="android:windowIsTranslucent">true</item>
+                  <item name="android:windowBackground">@android:color/transparent</item>
+              </style>
+          </resources>
+          EOF
 
       # ------------------------------------------------------------
       # settings.gradle.kts
@@ -68,7 +148,7 @@ jobs:
           EOF
 
       # ------------------------------------------------------------
-      # app/build.gradle.kts (minSdk = 26, proper comments)
+      # app/build.gradle.kts
       # ------------------------------------------------------------
       - name: Create app/build.gradle.kts
         run: |
@@ -120,6 +200,7 @@ jobs:
               implementation("androidx.compose.ui:ui-tooling-preview")
               implementation("androidx.compose.material3:material3")
               implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
+              implementation("androidx.appcompat:appcompat:1.6.1")  // Added for AppCompat theme
 
               // mpv AAR
               implementation("dev.jdtech.mpv:libmpv:0.5.1")
@@ -141,9 +222,9 @@ jobs:
           EOF
 
       # ------------------------------------------------------------
-      # Empty strings.xml
+      # strings.xml
       # ------------------------------------------------------------
-      - name: Create empty resource files
+      - name: Create strings.xml
         run: |
           cat > app/src/main/res/values/strings.xml << 'EOF'
           <resources>
