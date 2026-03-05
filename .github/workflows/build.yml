@@ -38,6 +38,10 @@ jobs:
           mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/drawable
           mkdir -p app/src/main/res/mipmap-hdpi
+          mkdir -p app/src/main/res/mipmap-mdpi
+          mkdir -p app/src/main/res/mipmap-xhdpi
+          mkdir -p app/src/main/res/mipmap-xxhdpi
+          mkdir -p app/src/main/res/mipmap-xxxhdpi
           mkdir -p gradle/wrapper
 
       # ============================================
@@ -374,7 +378,7 @@ jobs:
           EOF
 
       # ============================================
-      # GENERATE ANDROID MANIFEST
+      # GENERATE ANDROID MANIFEST (with vector icon)
       # ============================================
       - name: Generate AndroidManifest.xml
         run: |
@@ -386,7 +390,7 @@ jobs:
 
               <application
                   android:allowBackup="true"
-                  android:icon="@mipmap/ic_launcher"
+                  android:icon="@drawable/ic_launcher"
                   android:label="MpvRF"
                   android:theme="@style/Theme.MpvRF"
                   android:requestLegacyExternalStorage="true">
@@ -441,12 +445,35 @@ jobs:
           EOF
 
       # ============================================
-      # CREATE SIMPLE ICON
+      # CREATE VECTOR DRAWABLE ICON (FIXED)
       # ============================================
-      - name: Create app icon
+      - name: Create vector icon
         run: |
-          echo "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" | base64 -d > app/src/main/res/drawable/ic_launcher.png
-          cp app/src/main/res/drawable/ic_launcher.png app/src/main/res/mipmap-hdpi/ic_launcher.png
+          # Create a simple vector icon (blue circle with white play triangle)
+          cat > app/src/main/res/drawable/ic_launcher.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="192dp"
+              android:height="192dp"
+              android:viewportWidth="192"
+              android:viewportHeight="192">
+              <!-- Blue circle background -->
+              <path
+                  android:fillColor="#2196F3"
+                  android:pathData="M96,0C43,0 0,43 0,96s43,96 96,96 96,-43 96,-96S149,0 96,0z"/>
+              <!-- White play triangle -->
+              <path
+                  android:fillColor="#FFFFFF"
+                  android:pathData="M128,96L80,128L80,64z"/>
+          </vector>
+          EOF
+          
+          # Copy to all mipmap directories (vectors work everywhere)
+          cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-hdpi/ic_launcher.xml
+          cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-mdpi/ic_launcher.xml
+          cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-xhdpi/ic_launcher.xml
+          cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-xxhdpi/ic_launcher.xml
+          cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-xxxhdpi/ic_launcher.xml
 
       # ============================================
       # BUILD APK
