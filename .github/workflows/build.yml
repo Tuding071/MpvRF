@@ -23,7 +23,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       # ============================================
-      # CREATE PROJECT STRUCTURE
+      # CREATE PROJECT STRUCTURE FIRST
       # ============================================
       - name: Create Android project directories
         run: |
@@ -31,19 +31,21 @@ jobs:
           mkdir -p app/src/main/java/app/marlboroadvance/mpvrf
           mkdir -p app/src/main/jniLibs/arm64-v8a
           mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/mipmap-hdpi
           mkdir -p gradle/wrapper
 
       # ============================================
       # COPY YOUR FILES
       # ============================================
       - name: Copy native libraries
-        run: cp -r libs/arm64-v8a/* app/src/main/jniLibs/arm64-v8a/
+        run: cp -r libs/arm64-v8a/* app/src/main/jniLibs/arm64-v8a/ || true
           
       - name: Copy PlayerOverlay UI
-        run: cp ui/PlayerOverlay.kt app/src/main/java/app/marlboroadvance/mpvrf/
+        run: cp ui/PlayerOverlay.kt app/src/main/java/app/marlboroadvance/mpvrf/ || true
 
       # ============================================
-      # GENERATE GRADLE FILES
+      # GENERATE GRADLE WRAPPER FIRST
       # ============================================
       - name: Generate gradle-wrapper.properties
         run: |
@@ -55,6 +57,18 @@ jobs:
           zipStorePath=wrapper/dists
           EOF
 
+      - name: Download Gradle wrapper
+        run: |
+          cd gradle/wrapper
+          curl -LO https://raw.githubusercontent.com/gradle/gradle/v8.6.0/gradle/wrapper/gradle-wrapper.jar
+          cd ../..
+          echo '#!/bin/sh' > gradlew
+          echo 'exec java -cp "gradle/wrapper/gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain "$@"' >> gradlew
+          chmod +x gradlew
+
+      # ============================================
+      # GENERATE ALL BUILD FILES
+      # ============================================
       - name: Generate settings.gradle.kts
         run: |
           cat > settings.gradle.kts << 'EOF'
@@ -146,9 +160,6 @@ jobs:
               implementation("androidx.compose.ui:ui-tooling-preview")
               implementation("androidx.compose.material3:material3")
 
-              // MPV Dependencies
-              implementation("androidx.media3:media3-exoplayer:1.3.1")
-              
               // Coroutines
               implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
               
@@ -158,7 +169,7 @@ jobs:
           EOF
 
       # ============================================
-      # GENERATE MPV BINDINGS
+      # GENERATE MPV BINDINGS (What your PlayerOverlay connects to)
       # ============================================
       - name: Generate MPVLib.java
         run: |
@@ -173,6 +184,12 @@ jobs:
               static {
                   System.loadLibrary("mpv");
                   System.loadLibrary("c++_shared");
+                  // Load libplayer.so if needed
+                  try {
+                      System.loadLibrary("player");
+                  } catch (Throwable t) {
+                      // Optional, ignore if not present
+                  }
               }
 
               public static native void create(Context context);
@@ -244,6 +261,7 @@ jobs:
           class MPVView(context: Context) : TextureView(context) {
               
               private var surface: Surface? = null
+              var onInitialized: (() -> Unit)? = null
 
               fun initialize() {
                   MPVLib.create(context)
@@ -251,6 +269,7 @@ jobs:
                       override fun onSurfaceTextureAvailable(surfaceTexture: android.graphics.SurfaceTexture, width: Int, height: Int) {
                           surface = Surface(surfaceTexture)
                           MPVLib.attachSurface(surface)
+                          onInitialized?.invoke()
                       }
 
                       override fun onSurfaceTextureSizeChanged(surfaceTexture: android.graphics.SurfaceTexture, width: Int, height: Int) {}
@@ -277,7 +296,7 @@ jobs:
           EOF
 
       # ============================================
-      # GENERATE THE SINGLE ACTIVITY (PlayerActivity)
+      # GENERATE PLAYER ACTIVITY (Hosts your overlay)
       # ============================================
       - name: Generate PlayerActivity.kt
         run: |
@@ -292,26 +311,28 @@ jobs:
           import androidx.compose.runtime.*
           import androidx.compose.ui.Modifier
           import androidx.compose.ui.viewinterop.AndroidView
-          import androidx.lifecycle.viewmodel.compose.viewModel
+          import androidx.lifecycle.ViewModelProvider
           import is.xyz.mpv.MPVView
-          import java.io.File
 
           class PlayerActivity : ComponentActivity() {
+              private lateinit var viewModel: PlayerViewModel
+
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
 
                   // Get the video URI from intent
                   val videoUri = when (intent?.action) {
-                      Intent.ACTION_VIEW -> intent.data
+                      android.content.Intent.ACTION_VIEW -> intent.data
                       else -> null
                   } ?: run {
-                      // No video to play, finish
                       finish()
                       return
                   }
 
+                  // Initialize ViewModel
+                  viewModel = ViewModelProvider(this)[PlayerViewModel::class.java]
+
                   setContent {
-                      val viewModel: PlayerViewModel = viewModel()
                       var isReady by remember { mutableStateOf(false) }
                       
                       // MPV Video Surface
@@ -319,22 +340,22 @@ jobs:
                           factory = { context ->
                               MPVView(context).apply {
                                   initialize()
-                                  // Convert URI to path if needed
-                                  val path = when (videoUri.scheme) {
-                                      "content" -> getContentResolver().openFileDescriptor(videoUri, "r")?.statSize?.let {
-                                          videoUri.toString()
+                                  onInitialized = {
+                                      // Convert URI to path
+                                      val path = when (videoUri.scheme) {
+                                          "content" -> videoUri.toString()
+                                          "file" -> videoUri.path
+                                          else -> videoUri.toString()
                                       }
-                                      "file" -> videoUri.path
-                                      else -> videoUri.toString()
+                                      playUri(path ?: videoUri.toString())
+                                      isReady = true
                                   }
-                                  playUri(path ?: videoUri.toString())
-                                  isReady = true
                               }
                           },
                           modifier = Modifier.fillMaxSize()
                       )
 
-                      // Your Player Overlay (only show when MPV is ready)
+                      // Your Player Overlay (shows when MPV is ready)
                       if (isReady) {
                           PlayerOverlay(
                               viewModel = viewModel,
@@ -346,73 +367,7 @@ jobs:
 
               override fun onDestroy() {
                   super.onDestroy()
-                  // Cleanup handled by ViewModel
-              }
-          }
-          EOF
-
-      # ============================================
-      # GENERATE VIEWMODEL
-      # ============================================
-      - name: Generate PlayerViewModel.kt
-        run: |
-          cat > app/src/main/java/app/marlboroadvance/mpvrf/PlayerViewModel.kt << 'EOF'
-          package app.marlboroadvance.mpvrf
-
-          import androidx.lifecycle.ViewModel
-          import androidx.lifecycle.viewModelScope
-          import is.xyz.mpv.MPVLib
-          import kotlinx.coroutines.flow.MutableStateFlow
-          import kotlinx.coroutines.flow.StateFlow
-          import kotlinx.coroutines.launch
-
-          class PlayerViewModel : ViewModel() {
-              private val _currentVolume = MutableStateFlow(50)
-              val currentVolume: StateFlow<Int> = _currentVolume
-              val maxVolume = 100
-
-              private val _playbackSpeed = MutableStateFlow(1.0f)
-              val playbackSpeed: StateFlow<Float> = _playbackSpeed
-
-              init {
-                  // Optimize for local playback
-                  MPVLib.setPropertyString("hwdec", "auto")
-                  MPVLib.setPropertyString("vo", "gpu-next")
-                  MPVLib.setPropertyString("profile", "fast")
-                  MPVLib.setPropertyString("cache", "no") // No cache needed for local files
-              }
-
-              fun setVolume(volume: Int) {
-                  val newVolume = volume.coerceIn(0, maxVolume)
-                  _currentVolume.value = newVolume
-                  MPVLib.setPropertyInt("volume", newVolume)
-              }
-
-              fun adjustVolume(delta: Int) {
-                  setVolume(_currentVolume.value + delta)
-              }
-
-              fun setSpeed(speed: Float) {
-                  _playbackSpeed.value = speed
-                  MPVLib.setPropertyDouble("speed", speed.toDouble())
-              }
-
-              fun togglePause() {
-                  val isPaused = MPVLib.getPropertyBoolean("pause") ?: false
-                  MPVLib.setPropertyBoolean("pause", !isPaused)
-              }
-
-              fun seekTo(position: Double) {
-                  MPVLib.command("seek", position.toString(), "absolute", "exact")
-              }
-
-              fun seekRelative(seconds: Int) {
-                  MPVLib.command("seek", seconds.toString(), "relative", "exact")
-              }
-
-              override fun onCleared() {
-                  super.onCleared()
-                  MPVLib.destroy()
+                  viewModel.cleanup()
               }
           }
           EOF
@@ -427,13 +382,11 @@ jobs:
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
               <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-              <uses-permission android:name="android.permission.INTERNET" />
-              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
               <application
                   android:allowBackup="true"
                   android:icon="@mipmap/ic_launcher"
-                  android:label="@string/app_name"
+                  android:label="MpvRF"
                   android:theme="@style/Theme.MpvRF"
                   android:requestLegacyExternalStorage="true">
 
@@ -443,7 +396,7 @@ jobs:
                       android:configChanges="orientation|screenSize|keyboardHidden"
                       android:launchMode="singleTask">
 
-                      <!-- Appears in "Open with" for all video files -->
+                      <!-- Appears in "Open with" for video files -->
                       <intent-filter>
                           <action android:name="android.intent.action.VIEW" />
                           <category android:name="android.intent.category.DEFAULT" />
@@ -458,7 +411,7 @@ jobs:
                           <data android:mimeType="video/*" />
                       </intent-filter>
 
-                      <!-- Also handle common video extensions -->
+                      <!-- Common video extensions -->
                       <intent-filter>
                           <action android:name="android.intent.action.VIEW" />
                           <category android:name="android.intent.category.DEFAULT" />
@@ -468,14 +421,10 @@ jobs:
                           <data android:pathPattern=".*\\.mkv" />
                           <data android:pathPattern=".*\\.avi" />
                           <data android:pathPattern=".*\\.mov" />
-                          <data android:pathPattern=".*\\.wmv" />
-                          <data android:pathPattern=".*\\.flv" />
                           <data android:pathPattern=".*\\.webm" />
-                          <data android:pathPattern=".*\\.m4v" />
-                          <data android:pathPattern=".*\\.3gp" />
                       </intent-filter>
 
-                      <!-- No MAIN launcher - only appears in "Open with" -->
+                      <!-- No launcher icon -->
                   </activity>
               </application>
           </manifest>
@@ -484,15 +433,6 @@ jobs:
       # ============================================
       # GENERATE RESOURCES
       # ============================================
-      - name: Generate strings.xml
-        run: |
-          cat > app/src/main/res/values/strings.xml << 'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <string name="app_name">MpvRF</string>
-          </resources>
-          EOF
-
       - name: Generate themes.xml
         run: |
           cat > app/src/main/res/values/themes.xml << 'EOF'
@@ -507,40 +447,20 @@ jobs:
           EOF
 
       # ============================================
-      # GENERATE SIMPLE ICON
+      # CREATE SIMPLE ICON
       # ============================================
-      - name: Create simple icon
+      - name: Create app icon
         run: |
-          mkdir -p app/src/main/res/mipmap-hdpi
-          mkdir -p app/src/main/res/mipmap-mdpi
-          mkdir -p app/src/main/res/mipmap-xhdpi
-          mkdir -p app/src/main/res/mipmap-xxhdpi
-          mkdir -p app/src/main/res/mipmap-xxxhdpi
-          
-          # Create a simple red square as icon (1x1 pixel PNG will be stretched - not ideal but works)
-          echo "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" | base64 -d > app/src/main/res/mipmap-hdpi/ic_launcher.png
-          cp app/src/main/res/mipmap-hdpi/ic_launcher.png app/src/main/res/mipmap-mdpi/
-          cp app/src/main/res/mipmap-hdpi/ic_launcher.png app/src/main/res/mipmap-xhdpi/
-          cp app/src/main/res/mipmap-hdpi/ic_launcher.png app/src/main/res/mipmap-xxhdpi/
-          cp app/src/main/res/mipmap-hdpi/ic_launcher.png app/src/main/res/mipmap-xxxhdpi/
+          # Create a simple blue square icon
+          echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" | base64 -d > app/src/main/res/drawable/ic_launcher.png
+          cp app/src/main/res/drawable/ic_launcher.png app/src/main/res/mipmap-hdpi/ic_launcher.png
 
       # ============================================
-      # BUILD APK
+      # BUILD APK (Now gradlew exists)
       # ============================================
       - name: Build APK
         run: |
-          chmod +x gradlew
           ./gradlew assembleRelease
-
-      - name: Sign APK (optional - for release)
-        if: github.ref == 'refs/heads/main'
-        uses: r0adkll/sign-android-release@v1
-        with:
-          releaseDirectory: app/build/outputs/apk/release
-          signingKeyBase64: ${{ secrets.SIGNING_KEY }}
-          alias: ${{ secrets.KEY_ALIAS }}
-          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
