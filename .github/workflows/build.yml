@@ -24,7 +24,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       # ------------------------------------------------------------
-      # Create project structure and Gradle files
+      # Create project directories
       # ------------------------------------------------------------
       - name: Create project directories
         run: |
@@ -32,7 +32,10 @@ jobs:
           mkdir -p app/src/main/res/values
           mkdir -p app/libs
 
-      - name: Create settings.gradle.kts (without JitPack)
+      # ------------------------------------------------------------
+      # settings.gradle.kts
+      # ------------------------------------------------------------
+      - name: Create settings.gradle.kts
         run: |
           cat > settings.gradle.kts << 'EOF'
           pluginManagement {
@@ -52,6 +55,9 @@ jobs:
           include(":app")
           EOF
 
+      # ------------------------------------------------------------
+      # project build.gradle.kts
+      # ------------------------------------------------------------
       - name: Create project build.gradle.kts
         run: |
           cat > build.gradle.kts << 'EOF'
@@ -61,7 +67,10 @@ jobs:
           }
           EOF
 
-      - name: Create app/build.gradle.kts (no seeker dependency)
+      # ------------------------------------------------------------
+      # app/build.gradle.kts (minSdk = 26)
+      # ------------------------------------------------------------
+      - name: Create app/build.gradle.kts
         run: |
           cat > app/build.gradle.kts << 'EOF'
           plugins {
@@ -75,7 +84,7 @@ jobs:
 
               defaultConfig {
                   applicationId = "com.yourapp"
-                  minSdk = 21
+                  minSdk = 26          # FIXED: was 21
                   targetSdk = 34
                   versionCode = 1
                   versionName = "1.0"
@@ -115,12 +124,14 @@ jobs:
               // mpv AAR
               implementation("dev.jdtech.mpv:libmpv:0.5.1")
 
-              // Kotlin immutable collections (still needed for the code?)
-              // Actually your code doesn't use them, but keep for safety.
+              // Kotlin immutable collections (optional)
               implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
           }
           EOF
 
+      # ------------------------------------------------------------
+      # gradle.properties
+      # ------------------------------------------------------------
       - name: Create gradle.properties
         run: |
           cat > gradle.properties << 'EOF'
@@ -129,6 +140,9 @@ jobs:
           kotlin.code.style=official
           EOF
 
+      # ------------------------------------------------------------
+      # Empty strings.xml
+      # ------------------------------------------------------------
       - name: Create empty resource files
         run: |
           cat > app/src/main/res/values/strings.xml << 'EOF'
@@ -146,31 +160,30 @@ jobs:
       # ------------------------------------------------------------
       # Move your Kotlin files and manifest to the correct places
       # ------------------------------------------------------------
-      - name: Move MainActivity.kt to app/src/main/java/com/yourapp/
+      - name: Move MainActivity.kt
         run: |
           if [ -f MainActivity.kt ]; then
             mv MainActivity.kt app/src/main/java/com/yourapp/
           else
-            echo "::error::MainActivity.kt not found in root!"
+            echo "::error::MainActivity.kt not found!"
             exit 1
           fi
 
-      - name: Move PlayerOverlay.kt to app/src/main/java/com/yourapp/
+      - name: Move PlayerOverlay.kt
         run: |
           if [ -f PlayerOverlay.kt ]; then
-            # Optionally, you can also strip unused imports here with sed, but better to do it manually.
             mv PlayerOverlay.kt app/src/main/java/com/yourapp/
           else
-            echo "::error::PlayerOverlay.kt not found in root!"
+            echo "::error::PlayerOverlay.kt not found!"
             exit 1
           fi
 
-      - name: Move AndroidManifest.xml to app/src/main/
+      - name: Move AndroidManifest.xml
         run: |
           if [ -f AndroidManifest.xml ]; then
             mv AndroidManifest.xml app/src/main/
           else
-            echo "::error::AndroidManifest.xml not found in root!"
+            echo "::error::AndroidManifest.xml not found!"
             exit 1
           fi
 
