@@ -14,7 +14,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import `is`.xyz.mpv.MPVLib
+import is.xyz.mpv.MPVLib
 
 class MainActivity : ComponentActivity() {
     private lateinit var playerViewModel: PlayerViewModel
