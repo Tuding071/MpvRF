@@ -98,7 +98,7 @@ jobs:
           }
           EOF
 
-      - name: Generate build.gradle.kts (App)
+      - name: Generate build.gradle.kts (App) - FIXED VERSION
         run: |
           cat > app/build.gradle.kts << 'EOF'
           plugins {
@@ -118,14 +118,17 @@ jobs:
                   versionName = "1.0"
 
                   ndk {
-                      abiFilters("arm64-v8a")
+                      abiFilters += listOf("arm64-v8a")
                   }
               }
 
               buildTypes {
                   release {
                       isMinifyEnabled = false
-                      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+                      proguardFiles(
+                          getDefaultProguardFile("proguard-android-optimize.txt"),
+                          "proguard-rules.pro"
+                      )
                   }
               }
 
@@ -169,7 +172,7 @@ jobs:
           EOF
 
       # ============================================
-      # GENERATE MPV BINDINGS (What your PlayerOverlay connects to)
+      # GENERATE MPV BINDINGS
       # ============================================
       - name: Generate MPVLib.java
         run: |
@@ -184,7 +187,6 @@ jobs:
               static {
                   System.loadLibrary("mpv");
                   System.loadLibrary("c++_shared");
-                  // Load libplayer.so if needed
                   try {
                       System.loadLibrary("player");
                   } catch (Throwable t) {
@@ -296,7 +298,7 @@ jobs:
           EOF
 
       # ============================================
-      # GENERATE PLAYER ACTIVITY (Hosts your overlay)
+      # GENERATE PLAYER ACTIVITY
       # ============================================
       - name: Generate PlayerActivity.kt
         run: |
@@ -320,7 +322,6 @@ jobs:
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
 
-                  // Get the video URI from intent
                   val videoUri = when (intent?.action) {
                       android.content.Intent.ACTION_VIEW -> intent.data
                       else -> null
@@ -329,19 +330,16 @@ jobs:
                       return
                   }
 
-                  // Initialize ViewModel
                   viewModel = ViewModelProvider(this)[PlayerViewModel::class.java]
 
                   setContent {
                       var isReady by remember { mutableStateOf(false) }
                       
-                      // MPV Video Surface
                       AndroidView(
                           factory = { context ->
                               MPVView(context).apply {
                                   initialize()
                                   onInitialized = {
-                                      // Convert URI to path
                                       val path = when (videoUri.scheme) {
                                           "content" -> videoUri.toString()
                                           "file" -> videoUri.path
@@ -355,7 +353,6 @@ jobs:
                           modifier = Modifier.fillMaxSize()
                       )
 
-                      // Your Player Overlay (shows when MPV is ready)
                       if (isReady) {
                           PlayerOverlay(
                               viewModel = viewModel,
@@ -396,7 +393,6 @@ jobs:
                       android:configChanges="orientation|screenSize|keyboardHidden"
                       android:launchMode="singleTask">
 
-                      <!-- Appears in "Open with" for video files -->
                       <intent-filter>
                           <action android:name="android.intent.action.VIEW" />
                           <category android:name="android.intent.category.DEFAULT" />
@@ -410,21 +406,6 @@ jobs:
                           <data android:scheme="content" />
                           <data android:mimeType="video/*" />
                       </intent-filter>
-
-                      <!-- Common video extensions -->
-                      <intent-filter>
-                          <action android:name="android.intent.action.VIEW" />
-                          <category android:name="android.intent.category.DEFAULT" />
-                          <data android:scheme="file" />
-                          <data android:host="*" />
-                          <data android:pathPattern=".*\\.mp4" />
-                          <data android:pathPattern=".*\\.mkv" />
-                          <data android:pathPattern=".*\\.avi" />
-                          <data android:pathPattern=".*\\.mov" />
-                          <data android:pathPattern=".*\\.webm" />
-                      </intent-filter>
-
-                      <!-- No launcher icon -->
                   </activity>
               </application>
           </manifest>
@@ -446,17 +427,25 @@ jobs:
           </resources>
           EOF
 
+      - name: Generate strings.xml
+        run: |
+          cat > app/src/main/res/values/strings.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">MpvRF</string>
+          </resources>
+          EOF
+
       # ============================================
       # CREATE SIMPLE ICON
       # ============================================
       - name: Create app icon
         run: |
-          # Create a simple blue square icon
-          echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" | base64 -d > app/src/main/res/drawable/ic_launcher.png
+          echo "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" | base64 -d > app/src/main/res/drawable/ic_launcher.png
           cp app/src/main/res/drawable/ic_launcher.png app/src/main/res/mipmap-hdpi/ic_launcher.png
 
       # ============================================
-      # BUILD APK (Now gradlew exists)
+      # BUILD APK
       # ============================================
       - name: Build APK
         run: |
