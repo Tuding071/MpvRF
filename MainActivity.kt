@@ -1,6 +1,7 @@
 package com.yourapp
 
 import android.os.Bundle
+import android.view.SurfaceHolder  // <-- ADD THIS
 import android.view.SurfaceView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -21,7 +22,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Initialize MPVLib
         MPVLib.create(applicationContext)
         MPVLib.init()
 
@@ -29,7 +29,6 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             Box(modifier = Modifier.fillMaxSize()) {
-                // SurfaceView for video output
                 AndroidView(
                     factory = { context ->
                         SurfaceView(context).apply {
@@ -42,9 +41,7 @@ class MainActivity : ComponentActivity() {
                                     format: Int,
                                     width: Int,
                                     height: Int
-                                ) {
-                                    // Optionally handle surface changes
-                                }
+                                ) {}
                                 override fun surfaceDestroyed(holder: SurfaceHolder) {
                                     MPVLib.detachSurface()
                                 }
@@ -54,7 +51,6 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Your custom overlay
                 PlayerOverlay(
                     viewModel = playerViewModel,
                     modifier = Modifier.fillMaxSize()
@@ -69,9 +65,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Simple ViewModel to satisfy PlayerOverlay's requirements
 class PlayerViewModel : ViewModel() {
-    private val _currentVolume = MutableStateFlow(50) // example starting volume
+    private val _currentVolume = MutableStateFlow(50)
     val currentVolume: StateFlow<Int> = _currentVolume.asStateFlow()
     val maxVolume = 100
 }
