@@ -1,6 +1,6 @@
 name: Build MpvRF APK
 
-# MANUAL TRIGGER ONLY - Click "Run workflow" in GitHub Actions tab
+# MANUAL TRIGGER ONLY
 on:
   workflow_dispatch:
     inputs:
@@ -28,7 +28,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       # ============================================
-      # CREATE PROJECT STRUCTURE FIRST
+      # CREATE PROJECT STRUCTURE
       # ============================================
       - name: Create Android project directories
         run: |
@@ -38,10 +38,6 @@ jobs:
           mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/drawable
           mkdir -p app/src/main/res/mipmap-hdpi
-          mkdir -p app/src/main/res/mipmap-mdpi
-          mkdir -p app/src/main/res/mipmap-xhdpi
-          mkdir -p app/src/main/res/mipmap-xxhdpi
-          mkdir -p app/src/main/res/mipmap-xxxhdpi
           mkdir -p gradle/wrapper
 
       # ============================================
@@ -54,7 +50,7 @@ jobs:
         run: cp ui/PlayerOverlay.kt app/src/main/java/app/marlboroadvance/mpvrf/ || true
 
       # ============================================
-      # GENERATE GRADLE WRAPPER FIRST
+      # GENERATE GRADLE WRAPPER
       # ============================================
       - name: Generate gradle-wrapper.properties
         run: |
@@ -76,7 +72,7 @@ jobs:
           chmod +x gradlew
 
       # ============================================
-      # GENERATE GRADLE.PROPERTIES (Fixes AndroidX error)
+      # GRADLE PROPERTIES
       # ============================================
       - name: Generate gradle.properties
         run: |
@@ -88,7 +84,7 @@ jobs:
           EOF
 
       # ============================================
-      # GENERATE ALL BUILD FILES
+      # BUILD FILES
       # ============================================
       - name: Generate settings.gradle.kts
         run: |
@@ -181,11 +177,12 @@ jobs:
               implementation("androidx.compose.ui:ui-tooling-preview")
               implementation("androidx.compose.material3:material3")
               implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+              implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
           }
           EOF
 
       # ============================================
-      # GENERATE MPV BINDINGS
+      # FIXED MPVLib.java
       # ============================================
       - name: Generate MPVLib.java
         run: |
@@ -195,6 +192,7 @@ jobs:
           import android.content.Context;
           import android.view.Surface;
           import java.util.concurrent.ConcurrentLinkedQueue;
+          import java.util.ArrayList;
 
           public class MPVLib {
               static {
@@ -202,7 +200,9 @@ jobs:
                   System.loadLibrary("c++_shared");
                   try {
                       System.loadLibrary("player");
-                  } catch (Throwable t) {}
+                  } catch (Throwable t) {
+                      // Optional library
+                  }
               }
 
               public static native void create(Context context);
@@ -220,7 +220,7 @@ jobs:
               public static native void detachSurface();
 
               private static ConcurrentLinkedQueue<Runnable> eventQueue = new ConcurrentLinkedQueue<>();
-              private static java.util.ArrayList<Listener> listeners = new java.util.ArrayList<>();
+              private static ArrayList<Listener> listeners = new ArrayList<>();
 
               public static void pollEvent() {
                   Runnable r;
@@ -262,10 +262,13 @@ jobs:
           }
           EOF
 
+      # ============================================
+      # FIXED MPVView.kt (with backticks for package)
+      # ============================================
       - name: Generate MPVView.kt
         run: |
           cat > app/src/main/java/is/xyz/mpv/MPVView.kt << 'EOF'
-          package is.xyz.mpv
+          package `is`.xyz.mpv
 
           import android.content.Context
           import android.view.Surface
@@ -279,19 +282,34 @@ jobs:
               fun initialize() {
                   MPVLib.create(context)
                   surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                      override fun onSurfaceTextureAvailable(surfaceTexture: android.graphics.SurfaceTexture, width: Int, height: Int) {
+                      override fun onSurfaceTextureAvailable(
+                          surfaceTexture: android.graphics.SurfaceTexture,
+                          width: Int,
+                          height: Int
+                      ) {
                           surface = Surface(surfaceTexture)
                           MPVLib.attachSurface(surface)
                           onInitialized?.invoke()
                       }
-                      override fun onSurfaceTextureSizeChanged(surfaceTexture: android.graphics.SurfaceTexture, width: Int, height: Int) {}
-                      override fun onSurfaceTextureDestroyed(surfaceTexture: android.graphics.SurfaceTexture): Boolean {
+
+                      override fun onSurfaceTextureSizeChanged(
+                          surfaceTexture: android.graphics.SurfaceTexture,
+                          width: Int,
+                          height: Int
+                      ) {}
+
+                      override fun onSurfaceTextureDestroyed(
+                          surfaceTexture: android.graphics.SurfaceTexture
+                      ): Boolean {
                           MPVLib.detachSurface()
                           surface?.release()
                           surface = null
                           return true
                       }
-                      override fun onSurfaceTextureUpdated(surfaceTexture: android.graphics.SurfaceTexture) {}
+
+                      override fun onSurfaceTextureUpdated(
+                          surfaceTexture: android.graphics.SurfaceTexture
+                      ) {}
                   }
               }
 
@@ -322,7 +340,7 @@ jobs:
           import androidx.compose.ui.Modifier
           import androidx.compose.ui.viewinterop.AndroidView
           import androidx.lifecycle.ViewModelProvider
-          import is.xyz.mpv.MPVView
+          import `is`.xyz.mpv.MPVView
 
           class PlayerActivity : ComponentActivity() {
               private lateinit var viewModel: PlayerViewModel
@@ -378,7 +396,7 @@ jobs:
           EOF
 
       # ============================================
-      # GENERATE ANDROID MANIFEST (with vector icon)
+      # GENERATE ANDROID MANIFEST
       # ============================================
       - name: Generate AndroidManifest.xml
         run: |
@@ -445,11 +463,10 @@ jobs:
           EOF
 
       # ============================================
-      # CREATE VECTOR DRAWABLE ICON (FIXED)
+      # CREATE VECTOR ICON
       # ============================================
       - name: Create vector icon
         run: |
-          # Create a simple vector icon (blue circle with white play triangle)
           cat > app/src/main/res/drawable/ic_launcher.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -457,23 +474,16 @@ jobs:
               android:height="192dp"
               android:viewportWidth="192"
               android:viewportHeight="192">
-              <!-- Blue circle background -->
               <path
                   android:fillColor="#2196F3"
                   android:pathData="M96,0C43,0 0,43 0,96s43,96 96,96 96,-43 96,-96S149,0 96,0z"/>
-              <!-- White play triangle -->
               <path
                   android:fillColor="#FFFFFF"
                   android:pathData="M128,96L80,128L80,64z"/>
           </vector>
           EOF
           
-          # Copy to all mipmap directories (vectors work everywhere)
           cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-hdpi/ic_launcher.xml
-          cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-mdpi/ic_launcher.xml
-          cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-xhdpi/ic_launcher.xml
-          cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-xxhdpi/ic_launcher.xml
-          cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-xxxhdpi/ic_launcher.xml
 
       # ============================================
       # BUILD APK
