@@ -32,7 +32,7 @@ jobs:
           mkdir -p app/src/main/res/values
           mkdir -p app/libs
 
-      - name: Create settings.gradle.kts (with JitPack)
+      - name: Create settings.gradle.kts (without JitPack)
         run: |
           cat > settings.gradle.kts << 'EOF'
           pluginManagement {
@@ -46,7 +46,6 @@ jobs:
               repositories {
                   google()
                   mavenCentral()
-                  maven { url = uri("https://jitpack.io") }  // Added JitPack for seeker
               }
           }
           rootProject.name = "MpvRF"
@@ -62,7 +61,7 @@ jobs:
           }
           EOF
 
-      - name: Create app/build.gradle.kts (with correct seeker dependency)
+      - name: Create app/build.gradle.kts (no seeker dependency)
         run: |
           cat > app/build.gradle.kts << 'EOF'
           plugins {
@@ -116,10 +115,8 @@ jobs:
               // mpv AAR
               implementation("dev.jdtech.mpv:libmpv:0.5.1")
 
-              // Correct seeker dependency from JitPack
-              implementation("com.github.vivvvek:Seeker:1.0.0")
-
-              // Kotlin immutable collections
+              // Kotlin immutable collections (still needed for the code?)
+              // Actually your code doesn't use them, but keep for safety.
               implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
           }
           EOF
@@ -161,6 +158,7 @@ jobs:
       - name: Move PlayerOverlay.kt to app/src/main/java/com/yourapp/
         run: |
           if [ -f PlayerOverlay.kt ]; then
+            # Optionally, you can also strip unused imports here with sed, but better to do it manually.
             mv PlayerOverlay.kt app/src/main/java/com/yourapp/
           else
             echo "::error::PlayerOverlay.kt not found in root!"
@@ -190,4 +188,3 @@ jobs:
         with:
           name: MpvRF-debug
           path: app/build/outputs/apk/debug/app-debug.apk
-         
