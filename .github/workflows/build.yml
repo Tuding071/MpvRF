@@ -1,5 +1,8 @@
 name: Build MpvRF APK
 
+permissions:
+  contents: write
+
 # MANUAL TRIGGER ONLY
 on:
   workflow_dispatch:
@@ -15,14 +18,17 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: 'gradle'
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -115,9 +121,6 @@ jobs:
           }
           EOF
 
-      # ============================================
-      # GENERATE build.gradle.kts (App) - WITH COMPILER FLAGS FIX
-      # ============================================
       - name: Generate build.gradle.kts (App) - WITH COMPILER FLAGS
         run: |
           cat > app/build.gradle.kts << 'EOF'
@@ -166,7 +169,7 @@ jobs:
                       "-Xopt-in=androidx.compose.ui.ExperimentalComposeUiApi",
                       "-Xopt-in=androidx.compose.animation.ExperimentalAnimationApi",
                       "-Xopt-in=androidx.compose.material3.ExperimentalMaterial3Api",
-                      "-nowarn"  // This tells the compiler not to fail on warnings
+                      "-nowarn"
                   )
               }
 
@@ -212,7 +215,7 @@ jobs:
           EOF
 
       # ============================================
-      # FIXED MPVLib.java
+      # GENERATE MPV BINDINGS
       # ============================================
       - name: Generate MPVLib.java
         run: |
@@ -292,9 +295,6 @@ jobs:
           }
           EOF
 
-      # ============================================
-      # FIXED MPVView.kt (with backticks for package)
-      # ============================================
       - name: Generate MPVView.kt
         run: |
           cat > app/src/main/java/is/xyz/mpv/MPVView.kt << 'EOF'
@@ -516,14 +516,94 @@ jobs:
           cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-hdpi/ic_launcher.xml
 
       # ============================================
-      # BUILD APK
+      # MAKE GRADLEW EXECUTABLE
+      # ============================================
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      # ============================================
+      # BUILD THE APK
       # ============================================
       - name: Build APK
-        run: |
-          ./gradlew assembleRelease
+        run: ./gradlew assembleRelease
 
-      - name: Upload APK
+      # ============================================
+      # INSTALL APKSIGNER
+      # ============================================
+      - name: Install apksigner
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y apksigner
+
+      # ============================================
+      # CREATE DUMMY KEYSTORE FOR SIGNING
+      # ============================================
+      - name: Create dummy keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore dummy.keystore \
+            -storepass test1234 \
+            -alias dummykey \
+            -keypass test1234 \
+            -dname "CN=MpvRF, OU=Development, O=MpvRF, L=Unknown, S=Unknown, C=PH" \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000
+
+      # ============================================
+      # SIGN THE APK
+      # ============================================
+      - name: Sign APK with apksigner (v2/v3)
+        run: |
+          apksigner sign \
+            --ks dummy.keystore \
+            --ks-key-alias dummykey \
+            --ks-pass pass:test1234 \
+            --key-pass pass:test1234 \
+            --out MpvRF-signed.apk \
+            app/build/outputs/apk/release/app-release-unsigned.apk
+
+      # ============================================
+      # VERIFY APK SIGNATURE
+      # ============================================
+      - name: Verify APK signature
+        run: apksigner verify MpvRF-signed.apk
+
+      # ============================================
+      # GET CURRENT DATE TIME IN PH TIME
+      # ============================================
+      - name: Get current date time in PH time
+        id: datetime
+        run: |
+          # Get current time in PH timezone (UTC+8)
+          PH_TIME=$(TZ='Asia/Manila' date +'%Y%m%d_%I%M%p')
+          echo "filename_time=$PH_TIME" >> $GITHUB_OUTPUT
+
+      # ============================================
+      # SAVE PlayerOverlay.kt FROM THE BUILD
+      # ============================================
+      - name: Save PlayerOverlay.kt from build
+        run: |
+          cp app/src/main/java/app/marlboroadvance/mpvrf/PlayerOverlay.kt ./PlayerOverlay.kt || true
+
+      # ============================================
+      # CREATE ZIP FILE WITH APK AND KOTLIN FILE
+      # ============================================
+      - name: Create zip file with APK and Kotlin file
+        run: |
+          # Rename APK with date time format
+          mv MpvRF-signed.apk "MpvRF_${{ steps.datetime.outputs.filename_time }}.apk"
+          
+          # Create zip file containing both APK and Kotlin file
+          zip "MpvRF_build_${{ steps.datetime.outputs.filename_time }}.zip" \
+            "MpvRF_${{ steps.datetime.outputs.filename_time }}.apk" \
+            "PlayerOverlay.kt" || true
+
+      # ============================================
+      # UPLOAD ZIP ARTIFACT
+      # ============================================
+      - name: Upload zip artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MpvRF-APK
-          path: app/build/outputs/apk/release/*.apk
+          path: ./MpvRF_build_${{ steps.datetime.outputs.filename_time }}.zip
+          name: MpvRF-build-${{ steps.datetime.outputs.filename_time }}
