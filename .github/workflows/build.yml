@@ -116,7 +116,7 @@ jobs:
               implementation("dev.jdtech.mpv:libmpv:0.5.1")
 
               // Custom seekbar used in PlayerOverlay
-              implementation("dev.vivvvek:seeker:0.1.0") // Check latest version
+              implementation("dev.vivvvek:seeker:0.1.0")  // Check latest version
 
               // Kotlin immutable collections
               implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
@@ -138,6 +138,16 @@ jobs:
               <string name="app_name">MpvRF</string>
           </resources>
           EOF
+
+      # ------------------------------------------------------------
+      # Generate Gradle Wrapper (so we have gradlew)
+      # ------------------------------------------------------------
+      - name: Generate Gradle Wrapper
+        run: |
+          curl -L -o gradle.zip https://services.gradle.org/distributions/gradle-8.4-bin.zip
+          unzip -q gradle.zip
+          ./gradle-8.4/bin/gradle wrapper
+          rm -rf gradle.zip gradle-8.4
 
       # ------------------------------------------------------------
       # Move your Kotlin files and manifest to the correct places
