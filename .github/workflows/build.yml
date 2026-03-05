@@ -28,7 +28,6 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          # cache: 'gradle'  # REMOVED - no gradle files exist yet
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -162,7 +161,6 @@ jobs:
 
               kotlinOptions {
                   jvmTarget = "17"
-                  // Opt-in to experimental APIs and suppress warnings
                   freeCompilerArgs += listOf(
                       "-Xopt-in=kotlin.RequiresOptIn",
                       "-Xopt-in=androidx.compose.foundation.ExperimentalFoundationApi",
@@ -183,17 +181,10 @@ jobs:
           }
 
           dependencies {
-              // AndroidX Core
               implementation("androidx.core:core-ktx:1.12.0")
-              
-              // Lifecycle
               implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
               implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
-              
-              // Activity Compose
               implementation("androidx.activity:activity-compose:1.8.2")
-              
-              // Compose BOM and core libraries
               implementation(platform("androidx.compose:compose-bom:2024.04.01"))
               implementation("androidx.compose.ui:ui")
               implementation("androidx.compose.ui:ui-graphics")
@@ -201,14 +192,8 @@ jobs:
               implementation("androidx.compose.material3:material3")
               implementation("androidx.compose.runtime:runtime")
               implementation("androidx.compose.runtime:runtime-livedata")
-              
-              // Coroutines
               implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-              
-              // Immutable collections
               implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
-              
-              // Debug dependencies
               debugImplementation("androidx.compose.ui:ui-tooling")
               debugImplementation("androidx.compose.ui:ui-test-manifest")
           }
@@ -233,9 +218,7 @@ jobs:
                   System.loadLibrary("c++_shared");
                   try {
                       System.loadLibrary("player");
-                  } catch (Throwable t) {
-                      // Optional library
-                  }
+                  } catch (Throwable t) {}
               }
 
               public static native void create(Context context);
@@ -257,36 +240,25 @@ jobs:
 
               public static void pollEvent() {
                   Runnable r;
-                  while ((r = eventQueue.poll()) != null) {
-                      r.run();
-                  }
+                  while ((r = eventQueue.poll()) != null) r.run();
               }
 
               @SuppressWarnings("unused")
               private static void sendEvent(final String event) {
                   eventQueue.add(() -> {
-                      for (Listener listener : listeners) {
-                          listener.onEvent(event);
-                      }
+                      for (Listener listener : listeners) listener.onEvent(event);
                   });
               }
 
               @SuppressWarnings("unused")
               private static void sendProperty(final String property, final String value) {
                   eventQueue.add(() -> {
-                      for (Listener listener : listeners) {
-                          listener.onPropertyChange(property, value);
-                      }
+                      for (Listener listener : listeners) listener.onPropertyChange(property, value);
                   });
               }
 
-              public static void addListener(Listener listener) {
-                  listeners.add(listener);
-              }
-
-              public static void removeListener(Listener listener) {
-                  listeners.remove(listener);
-              }
+              public static void addListener(Listener listener) { listeners.add(listener); }
+              public static void removeListener(Listener listener) { listeners.remove(listener); }
 
               public interface Listener {
                   void onEvent(String event);
@@ -307,40 +279,9 @@ jobs:
           class MPVView(context: Context) : TextureView(context) {
               
               private var surface: Surface? = null
-              var onInitialized: (() -> Unit)? = null
 
               fun initialize() {
                   MPVLib.create(context)
-                  surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                      override fun onSurfaceTextureAvailable(
-                          surfaceTexture: android.graphics.SurfaceTexture,
-                          width: Int,
-                          height: Int
-                      ) {
-                          surface = Surface(surfaceTexture)
-                          MPVLib.attachSurface(surface)
-                          onInitialized?.invoke()
-                      }
-
-                      override fun onSurfaceTextureSizeChanged(
-                          surfaceTexture: android.graphics.SurfaceTexture,
-                          width: Int,
-                          height: Int
-                      ) {}
-
-                      override fun onSurfaceTextureDestroyed(
-                          surfaceTexture: android.graphics.SurfaceTexture
-                      ): Boolean {
-                          MPVLib.detachSurface()
-                          surface?.release()
-                          surface = null
-                          return true
-                      }
-
-                      override fun onSurfaceTextureUpdated(
-                          surfaceTexture: android.graphics.SurfaceTexture
-                      ) {}
-                  }
               }
 
               fun playUri(uri: String) {
@@ -354,7 +295,7 @@ jobs:
           EOF
 
       # ============================================
-      # GENERATE PLAYER ACTIVITY
+      # GENERATE PLAYER ACTIVITY - FIXED VERSION (UI ALWAYS SHOWS)
       # ============================================
       - name: Generate PlayerActivity.kt
         run: |
@@ -365,11 +306,13 @@ jobs:
           import android.os.Bundle
           import androidx.activity.ComponentActivity
           import androidx.activity.compose.setContent
+          import androidx.compose.foundation.layout.Box
           import androidx.compose.foundation.layout.fillMaxSize
           import androidx.compose.runtime.*
           import androidx.compose.ui.Modifier
           import androidx.compose.ui.viewinterop.AndroidView
           import androidx.lifecycle.ViewModelProvider
+          import androidx.compose.material3.MaterialTheme
           import `is`.xyz.mpv.MPVView
 
           class PlayerActivity : ComponentActivity() {
@@ -389,31 +332,49 @@ jobs:
                   viewModel = ViewModelProvider(this)[PlayerViewModel::class.java]
 
                   setContent {
-                      var isReady by remember { mutableStateOf(false) }
-                      
-                      AndroidView(
-                          factory = { context ->
-                              MPVView(context).apply {
-                                  initialize()
-                                  onInitialized = {
-                                      val path = when (videoUri.scheme) {
-                                          "content" -> videoUri.toString()
-                                          "file" -> videoUri.path
-                                          else -> videoUri.toString()
+                      MaterialTheme {
+                          Box(modifier = Modifier.fillMaxSize()) {
+                              // Video surface (bottom layer)
+                              AndroidView(
+                                  factory = { context ->
+                                      MPVView(context).apply {
+                                          initialize()
+                                          surfaceTextureListener = object : android.view.TextureView.SurfaceTextureListener {
+                                              override fun onSurfaceTextureAvailable(
+                                                  surface: android.graphics.SurfaceTexture,
+                                                  width: Int,
+                                                  height: Int
+                                              ) {
+                                                  val path = when (videoUri.scheme) {
+                                                      "content" -> videoUri.toString()
+                                                      "file" -> videoUri.path
+                                                      else -> videoUri.toString()
+                                                  }
+                                                  playUri(path ?: videoUri.toString())
+                                              }
+                                              override fun onSurfaceTextureSizeChanged(
+                                                  surface: android.graphics.SurfaceTexture,
+                                                  width: Int,
+                                                  height: Int
+                                              ) {}
+                                              override fun onSurfaceTextureDestroyed(
+                                                  surface: android.graphics.SurfaceTexture
+                                              ): Boolean = true
+                                              override fun onSurfaceTextureUpdated(
+                                                  surface: android.graphics.SurfaceTexture
+                                              ) {}
+                                          }
                                       }
-                                      playUri(path ?: videoUri.toString())
-                                      isReady = true
-                                  }
-                              }
-                          },
-                          modifier = Modifier.fillMaxSize()
-                      )
-
-                      if (isReady) {
-                          PlayerOverlay(
-                              viewModel = viewModel,
-                              modifier = Modifier.fillMaxSize()
-                          )
+                                  },
+                                  modifier = Modifier.fillMaxSize()
+                              )
+                              
+                              // UI overlay (top layer) - ALWAYS SHOWN
+                              PlayerOverlay(
+                                  viewModel = viewModel,
+                                  modifier = Modifier.fillMaxSize()
+                              )
+                          }
                       }
                   }
               }
@@ -512,32 +473,22 @@ jobs:
                   android:pathData="M128,96L80,128L80,64z"/>
           </vector>
           EOF
-          
           cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-hdpi/ic_launcher.xml
 
       # ============================================
-      # MAKE GRADLEW EXECUTABLE
+      # BUILD, SIGN, AND PACKAGE
       # ============================================
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      # ============================================
-      # BUILD THE APK
-      # ============================================
       - name: Build APK
         run: ./gradlew assembleRelease
 
-      # ============================================
-      # INSTALL APKSIGNER
-      # ============================================
       - name: Install apksigner
         run: |
           sudo apt-get update
           sudo apt-get install -y apksigner
 
-      # ============================================
-      # CREATE DUMMY KEYSTORE FOR SIGNING
-      # ============================================
       - name: Create dummy keystore
         run: |
           keytool -genkeypair -v \
@@ -550,10 +501,7 @@ jobs:
             -keysize 2048 \
             -validity 10000
 
-      # ============================================
-      # SIGN THE APK
-      # ============================================
-      - name: Sign APK with apksigner (v2/v3)
+      - name: Sign APK
         run: |
           apksigner sign \
             --ks dummy.keystore \
@@ -563,45 +511,29 @@ jobs:
             --out MpvRF-signed.apk \
             app/build/outputs/apk/release/app-release-unsigned.apk
 
-      # ============================================
-      # VERIFY APK SIGNATURE
-      # ============================================
       - name: Verify APK signature
         run: apksigner verify MpvRF-signed.apk
 
       # ============================================
-      # GET CURRENT DATE TIME IN PH TIME
+      # DATE AND ARCHIVING
       # ============================================
       - name: Get current date time in PH time
         id: datetime
         run: |
-          # Get current time in PH timezone (UTC+8)
           PH_TIME=$(TZ='Asia/Manila' date +'%Y%m%d_%I%M%p')
           echo "filename_time=$PH_TIME" >> $GITHUB_OUTPUT
 
-      # ============================================
-      # SAVE PlayerOverlay.kt FROM THE BUILD
-      # ============================================
       - name: Save PlayerOverlay.kt from build
         run: |
           cp app/src/main/java/app/marlboroadvance/mpvrf/PlayerOverlay.kt ./PlayerOverlay.kt || true
 
-      # ============================================
-      # CREATE ZIP FILE WITH APK AND KOTLIN FILE
-      # ============================================
       - name: Create zip file with APK and Kotlin file
         run: |
-          # Rename APK with date time format
           mv MpvRF-signed.apk "MpvRF_${{ steps.datetime.outputs.filename_time }}.apk"
-          
-          # Create zip file containing both APK and Kotlin file
           zip "MpvRF_build_${{ steps.datetime.outputs.filename_time }}.zip" \
             "MpvRF_${{ steps.datetime.outputs.filename_time }}.apk" \
             "PlayerOverlay.kt" || true
 
-      # ============================================
-      # UPLOAD ZIP ARTIFACT
-      # ============================================
       - name: Upload zip artifact
         uses: actions/upload-artifact@v4
         with:
