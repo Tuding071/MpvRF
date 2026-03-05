@@ -148,7 +148,7 @@ jobs:
           EOF
 
       # ------------------------------------------------------------
-      # app/build.gradle.kts
+      # app/build.gradle.kts (with Compose Compiler 1.5.13)
       # ------------------------------------------------------------
       - name: Create app/build.gradle.kts
         run: |
@@ -186,7 +186,7 @@ jobs:
                   compose = true
               }
               composeOptions {
-                  kotlinCompilerExtensionVersion = "1.5.10"
+                  kotlinCompilerExtensionVersion = "1.5.13"  // FIXED: Compatible with Kotlin 1.9.23
               }
           }
 
@@ -200,7 +200,7 @@ jobs:
               implementation("androidx.compose.ui:ui-tooling-preview")
               implementation("androidx.compose.material3:material3")
               implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
-              implementation("androidx.appcompat:appcompat:1.6.1")  // Added for AppCompat theme
+              implementation("androidx.appcompat:appcompat:1.6.1")
 
               // mpv AAR
               implementation("dev.jdtech.mpv:libmpv:0.5.1")
