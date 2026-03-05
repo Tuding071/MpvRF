@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.ripple
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.Composable
@@ -285,6 +284,30 @@ fun PlayerOverlay(
     val maxVerticalMovement = 50f
     val maxHorizontalMovement = 50f
     val quickSeekAmount = 5
+
+    // ========== UI HELPER FUNCTIONS - DEFINED EARLY FOR VISIBILITY ==========
+    fun scheduleSeekbarHide() {
+        coroutineScope.launch {
+            delay(4000)
+            showSeekbar = false
+            showVideoInfo = false
+        }
+    }
+    
+    fun showSeekbarWithTimeout() {
+        showSeekbar = true
+        showVideoInfo = true
+        scheduleSeekbarHide()
+    }
+    
+    fun showPlaybackFeedback(text: String) {
+        playbackFeedbackText = text
+        showPlaybackFeedback = true
+        coroutineScope.launch {
+            delay(1000)
+            showPlaybackFeedback = false
+        }
+    }
     
     // Update seekbar position when not dragging
     LaunchedEffect(currentPosition, isDragging) {
@@ -434,31 +457,6 @@ fun PlayerOverlay(
         isHorizontalSwipe = false
         isVerticalSwipe = false
         isLongTap = false
-    }
-    
-    // ========== UI HELPER FUNCTIONS ==========
-    
-    fun showPlaybackFeedback(text: String) {
-        playbackFeedbackText = text
-        showPlaybackFeedback = true
-        coroutineScope.launch {
-            delay(1000)
-            showPlaybackFeedback = false
-        }
-    }
-    
-    fun scheduleSeekbarHide() {
-        coroutineScope.launch {
-            delay(4000)
-            showSeekbar = false
-            showVideoInfo = false
-        }
-    }
-    
-    fun showSeekbarWithTimeout() {
-        showSeekbar = true
-        showVideoInfo = true
-        scheduleSeekbarHide()
     }
     
     // ========== PROGRESS BAR HANDLERS ==========
