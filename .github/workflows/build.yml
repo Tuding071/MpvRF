@@ -28,7 +28,7 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
+          # cache: 'gradle'  # REMOVED - no gradle files exist yet
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
