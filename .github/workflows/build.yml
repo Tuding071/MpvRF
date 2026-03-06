@@ -43,6 +43,10 @@ jobs:
           mkdir -p app/src/main/res/values
           mkdir -p app/src/main/res/drawable
           mkdir -p app/src/main/res/mipmap-hdpi
+          mkdir -p app/src/main/res/mipmap-mdpi
+          mkdir -p app/src/main/res/mipmap-xhdpi
+          mkdir -p app/src/main/res/mipmap-xxhdpi
+          mkdir -p app/src/main/res/mipmap-xxxhdpi
           mkdir -p gradle/wrapper
 
       # ============================================
@@ -120,7 +124,7 @@ jobs:
           }
           EOF
 
-      - name: Generate build.gradle.kts (App) - WITH COMPILER FLAGS
+      - name: Generate build.gradle.kts (App)
         run: |
           cat > app/build.gradle.kts << 'EOF'
           plugins {
@@ -295,13 +299,115 @@ jobs:
           EOF
 
       # ============================================
-      # GENERATE PLAYER ACTIVITY - FIXED VERSION (UI ALWAYS SHOWS)
+      # GENERATE MAIN ACTIVITY (LAUNCHER)
+      # ============================================
+      - name: Generate MainActivity.kt
+        run: |
+          cat > app/src/main/java/app/marlboroadvance/mpvrf/MainActivity.kt << 'EOF'
+          package app.marlboroadvance.mpvrf
+
+          import android.Manifest
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.net.Uri
+          import android.os.Bundle
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.unit.dp
+          import androidx.core.content.ContextCompat
+
+          class MainActivity : ComponentActivity() {
+              
+              private val requestPermissionLauncher = registerForActivityResult(
+                  ActivityResultContracts.RequestPermission()
+              ) { isGranted ->
+                  if (isGranted) {
+                      // Permission granted
+                  }
+              }
+
+              private val openFileLauncher = registerForActivityResult(
+                  ActivityResultContracts.GetContent()
+              ) { uri ->
+                  uri?.let {
+                      startPlayerActivity(it)
+                  }
+              }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+
+                  // Check and request storage permission
+                  if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                      requestPermissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+                  }
+
+                  setContent {
+                      MaterialTheme {
+                          MainScreen(
+                              onSelectFile = { openFileLauncher.launch("video/*") }
+                          )
+                      }
+                  }
+              }
+
+              private fun startPlayerActivity(uri: Uri) {
+                  startActivity(Intent(this, PlayerActivity::class.java).apply {
+                      data = uri
+                  })
+              }
+          }
+
+          @Composable
+          fun MainScreen(onSelectFile: () -> Unit) {
+              Column(
+                  modifier = Modifier
+                      .fillMaxSize()
+                      .padding(16.dp),
+                  horizontalAlignment = Alignment.CenterHorizontally,
+                  verticalArrangement = Arrangement.Center
+              ) {
+                  Text(
+                      text = "🎬 MpvRF Video Player",
+                      style = MaterialTheme.typography.headlineMedium
+                  )
+                  
+                  Spacer(modifier = Modifier.height(32.dp))
+                  
+                  Button(
+                      onClick = onSelectFile,
+                      modifier = Modifier.fillMaxWidth()
+                  ) {
+                      Text("📁 Select Video File")
+                  }
+                  
+                  Spacer(modifier = Modifier.height(16.dp))
+                  
+                  Text(
+                      text = "Or open a video file from any file manager",
+                      style = MaterialTheme.typography.bodyMedium
+                  )
+              }
+          }
+          EOF
+
+      # ============================================
+      # GENERATE PLAYER ACTIVITY (FIXED)
       # ============================================
       - name: Generate PlayerActivity.kt
         run: |
           cat > app/src/main/java/app/marlboroadvance/mpvrf/PlayerActivity.kt << 'EOF'
           package app.marlboroadvance.mpvrf
 
+          import android.Manifest
+          import android.content.pm.PackageManager
           import android.net.Uri
           import android.os.Bundle
           import androidx.activity.ComponentActivity
@@ -313,6 +419,7 @@ jobs:
           import androidx.compose.ui.viewinterop.AndroidView
           import androidx.lifecycle.ViewModelProvider
           import androidx.compose.material3.MaterialTheme
+          import androidx.core.content.ContextCompat
           import `is`.xyz.mpv.MPVView
 
           class PlayerActivity : ComponentActivity() {
@@ -320,6 +427,12 @@ jobs:
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
+
+                  // Check permission
+                  if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                      finish()
+                      return
+                  }
 
                   val videoUri = when (intent?.action) {
                       android.content.Intent.ACTION_VIEW -> intent.data
@@ -369,7 +482,7 @@ jobs:
                                   modifier = Modifier.fillMaxSize()
                               )
                               
-                              // UI overlay (top layer) - ALWAYS SHOWN
+                              // UI overlay (top layer)
                               PlayerOverlay(
                                   viewModel = viewModel,
                                   modifier = Modifier.fillMaxSize()
@@ -387,7 +500,7 @@ jobs:
           EOF
 
       # ============================================
-      # GENERATE ANDROID MANIFEST
+      # GENERATE ANDROID MANIFEST (WITH LAUNCHER)
       # ============================================
       - name: Generate AndroidManifest.xml
         run: |
@@ -396,14 +509,27 @@ jobs:
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
               <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+              <uses-permission android:name="android.permission.INTERNET" />
 
               <application
                   android:allowBackup="true"
-                  android:icon="@drawable/ic_launcher"
+                  android:icon="@mipmap/ic_launcher"
                   android:label="MpvRF"
                   android:theme="@style/Theme.MpvRF"
                   android:requestLegacyExternalStorage="true">
 
+                  <!-- Launcher activity -->
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:theme="@style/Theme.MpvRF">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <!-- Player activity -->
                   <activity
                       android:name=".PlayerActivity"
                       android:exported="true"
@@ -421,6 +547,14 @@ jobs:
                           <action android:name="android.intent.action.VIEW" />
                           <category android:name="android.intent.category.DEFAULT" />
                           <data android:scheme="content" />
+                          <data android:mimeType="video/*" />
+                      </intent-filter>
+                      
+                      <intent-filter>
+                          <action android:name="android.intent.action.VIEW" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <data android:scheme="http" />
+                          <data android:scheme="https" />
                           <data android:mimeType="video/*" />
                       </intent-filter>
                   </activity>
@@ -454,10 +588,11 @@ jobs:
           EOF
 
       # ============================================
-      # CREATE VECTOR ICON
+      # CREATE VECTOR ICON (ALL MIPMAP FOLDERS)
       # ============================================
       - name: Create vector icon
         run: |
+          # Create vector drawable
           cat > app/src/main/res/drawable/ic_launcher.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -473,7 +608,13 @@ jobs:
                   android:pathData="M128,96L80,128L80,64z"/>
           </vector>
           EOF
+          
+          # Copy to all mipmap folders
           cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-hdpi/ic_launcher.xml
+          cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-mdpi/ic_launcher.xml
+          cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-xhdpi/ic_launcher.xml
+          cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-xxhdpi/ic_launcher.xml
+          cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-xxxhdpi/ic_launcher.xml
 
       # ============================================
       # BUILD, SIGN, AND PACKAGE
