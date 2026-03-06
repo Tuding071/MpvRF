@@ -204,7 +204,7 @@ jobs:
           EOF
 
       # ============================================
-      # GENERATE MPV BINDINGS
+      # GENERATE MPV BINDINGS (UPDATED WITH LOGGING)
       # ============================================
       - name: Generate MPVLib.java
         run: |
@@ -212,17 +212,29 @@ jobs:
           package is.xyz.mpv;
 
           import android.content.Context;
+          import android.util.Log;
           import android.view.Surface;
           import java.util.concurrent.ConcurrentLinkedQueue;
           import java.util.ArrayList;
 
           public class MPVLib {
+              private static final String TAG = "MPVLib";
+              
               static {
-                  System.loadLibrary("mpv");
-                  System.loadLibrary("c++_shared");
                   try {
-                      System.loadLibrary("player");
-                  } catch (Throwable t) {}
+                      System.loadLibrary("mpv");
+                      Log.d(TAG, "Loaded libmpv.so");
+                      System.loadLibrary("c++_shared");
+                      Log.d(TAG, "Loaded libc++_shared.so");
+                      try {
+                          System.loadLibrary("player");
+                          Log.d(TAG, "Loaded libplayer.so");
+                      } catch (Throwable t) {
+                          Log.d(TAG, "libplayer.so not found (optional)");
+                      }
+                  } catch (Throwable t) {
+                      Log.e(TAG, "Failed to load native libraries", t);
+                  }
               }
 
               public static native void create(Context context);
@@ -244,25 +256,50 @@ jobs:
 
               public static void pollEvent() {
                   Runnable r;
-                  while ((r = eventQueue.poll()) != null) r.run();
+                  while ((r = eventQueue.poll()) != null) {
+                      try {
+                          r.run();
+                      } catch (Throwable t) {
+                          Log.e(TAG, "Error in event handler", t);
+                      }
+                  }
               }
 
               @SuppressWarnings("unused")
               private static void sendEvent(final String event) {
+                  Log.d(TAG, "MPV Event: " + event);
                   eventQueue.add(() -> {
-                      for (Listener listener : listeners) listener.onEvent(event);
+                      for (Listener listener : listeners) {
+                          try {
+                              listener.onEvent(event);
+                          } catch (Throwable t) {
+                              Log.e(TAG, "Error in listener", t);
+                          }
+                      }
                   });
               }
 
               @SuppressWarnings("unused")
               private static void sendProperty(final String property, final String value) {
+                  Log.d(TAG, "MPV Property: " + property + " = " + value);
                   eventQueue.add(() -> {
-                      for (Listener listener : listeners) listener.onPropertyChange(property, value);
+                      for (Listener listener : listeners) {
+                          try {
+                              listener.onPropertyChange(property, value);
+                          } catch (Throwable t) {
+                              Log.e(TAG, "Error in listener", t);
+                          }
+                      }
                   });
               }
 
-              public static void addListener(Listener listener) { listeners.add(listener); }
-              public static void removeListener(Listener listener) { listeners.remove(listener); }
+              public static void addListener(Listener listener) { 
+                  listeners.add(listener); 
+              }
+              
+              public static void removeListener(Listener listener) { 
+                  listeners.remove(listener); 
+              }
 
               public interface Listener {
                   void onEvent(String event);
@@ -271,35 +308,72 @@ jobs:
           }
           EOF
 
-      - name: Generate MPVView.kt
+      - name: Generate MPVView.kt (UPDATED WITH ERROR HANDLING)
         run: |
           cat > app/src/main/java/is/xyz/mpv/MPVView.kt << 'EOF'
           package `is`.xyz.mpv
 
           import android.content.Context
+          import android.util.Log
           import android.view.Surface
           import android.view.TextureView
 
           class MPVView(context: Context) : TextureView(context) {
               
+              private val TAG = "MPVView"
               private var surface: Surface? = null
+              private var isInitialized = false
 
               fun initialize() {
-                  MPVLib.create(context)
+                  try {
+                      Log.d(TAG, "Initializing MPV...")
+                      MPVLib.create(context)
+                      isInitialized = true
+                      Log.d(TAG, "MPV initialized successfully")
+                  } catch (e: Exception) {
+                      Log.e(TAG, "Failed to initialize MPV", e)
+                  }
               }
 
               fun playUri(uri: String) {
-                  MPVLib.command("loadfile", uri)
+                  if (!isInitialized) {
+                      Log.e(TAG, "Cannot play - MPV not initialized")
+                      return
+                  }
+                  try {
+                      Log.d(TAG, "Playing URI: $uri")
+                      MPVLib.command("loadfile", uri)
+                  } catch (e: Exception) {
+                      Log.e(TAG, "Failed to play URI", e)
+                  }
               }
 
               fun destroy() {
-                  MPVLib.destroy()
+                  try {
+                      if (isInitialized) {
+                          MPVLib.destroy()
+                          isInitialized = false
+                          Log.d(TAG, "MPV destroyed")
+                      }
+                  } catch (e: Exception) {
+                      Log.e(TAG, "Error destroying MPV", e)
+                  }
+              }
+
+              override fun onAttachedToWindow() {
+                  super.onAttachedToWindow()
+                  Log.d(TAG, "View attached to window")
+              }
+
+              override fun onDetachedFromWindow() {
+                  super.onDetachedFromWindow()
+                  Log.d(TAG, "View detached from window")
               }
           }
           EOF
 
       # ============================================
-      # GENERATE MAIN ACTIVITY (LAUNCHER)
+      # GENERATE MAIN ACTIVITY (WITH PERMISSION FIX)
       # ============================================
       - name: Generate MainActivity.kt
         run: |
@@ -311,6 +385,8 @@ jobs:
           import android.content.pm.PackageManager
           import android.net.Uri
           import android.os.Bundle
+          import android.provider.Settings
+          import android.widget.Toast
           import androidx.activity.ComponentActivity
           import androidx.activity.compose.setContent
           import androidx.activity.result.contract.ActivityResultContracts
@@ -329,7 +405,10 @@ jobs:
                   ActivityResultContracts.RequestPermission()
               ) { isGranted ->
                   if (isGranted) {
-                      // Permission granted
+                      Toast.makeText(this, "Permission granted! Select a video.", Toast.LENGTH_SHORT).show()
+                      openFileLauncher.launch("video/*")
+                  } else {
+                      Toast.makeText(this, "Storage permission required to play videos", Toast.LENGTH_LONG).show()
                   }
               }
 
@@ -344,15 +423,27 @@ jobs:
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
 
-                  // Check and request storage permission
-                  if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                      requestPermissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
-                  }
-
                   setContent {
                       MaterialTheme {
                           MainScreen(
-                              onSelectFile = { openFileLauncher.launch("video/*") }
+                              onSelectFile = {
+                                  when {
+                                      ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED -> {
+                                          openFileLauncher.launch("video/*")
+                                      }
+                                      else -> {
+                                          requestPermissionLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+                                      }
+                                  }
+                              },
+                              onTestMpv = {
+                                  try {
+                                      System.loadLibrary("mpv")
+                                      Toast.makeText(this, "✅ MPV library loaded!", Toast.LENGTH_SHORT).show()
+                                  } catch (e: Exception) {
+                                      Toast.makeText(this, "❌ Failed to load MPV: ${e.message}", Toast.LENGTH_LONG).show()
+                                  }
+                              }
                           )
                       }
                   }
@@ -361,12 +452,13 @@ jobs:
               private fun startPlayerActivity(uri: Uri) {
                   startActivity(Intent(this, PlayerActivity::class.java).apply {
                       data = uri
+                      flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
                   })
               }
           }
 
           @Composable
-          fun MainScreen(onSelectFile: () -> Unit) {
+          fun MainScreen(onSelectFile: () -> Unit, onTestMpv: () -> Unit) {
               Column(
                   modifier = Modifier
                       .fillMaxSize()
@@ -390,6 +482,15 @@ jobs:
                   
                   Spacer(modifier = Modifier.height(16.dp))
                   
+                  OutlinedButton(
+                      onClick = onTestMpv,
+                      modifier = Modifier.fillMaxWidth()
+                  ) {
+                      Text("🔧 Test MPV Library")
+                  }
+                  
+                  Spacer(modifier = Modifier.height(16.dp))
+                  
                   Text(
                       text = "Or open a video file from any file manager",
                       style = MaterialTheme.typography.bodyMedium
@@ -399,7 +500,7 @@ jobs:
           EOF
 
       # ============================================
-      # GENERATE PLAYER ACTIVITY (FIXED)
+      # GENERATE PLAYER ACTIVITY (WITH PERMISSION HANDLING)
       # ============================================
       - name: Generate PlayerActivity.kt
         run: |
@@ -407,9 +508,12 @@ jobs:
           package app.marlboroadvance.mpvrf
 
           import android.Manifest
+          import android.content.Intent
           import android.content.pm.PackageManager
           import android.net.Uri
           import android.os.Bundle
+          import android.util.Log
+          import android.widget.Toast
           import androidx.activity.ComponentActivity
           import androidx.activity.compose.setContent
           import androidx.compose.foundation.layout.Box
@@ -424,12 +528,17 @@ jobs:
 
           class PlayerActivity : ComponentActivity() {
               private lateinit var viewModel: PlayerViewModel
+              private val TAG = "PlayerActivity"
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
 
+                  Log.d(TAG, "PlayerActivity created")
+
                   // Check permission
                   if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                      Log.e(TAG, "Permission not granted")
+                      Toast.makeText(this, "Storage permission required", Toast.LENGTH_SHORT).show()
                       finish()
                       return
                   }
@@ -438,8 +547,24 @@ jobs:
                       android.content.Intent.ACTION_VIEW -> intent.data
                       else -> null
                   } ?: run {
+                      Log.e(TAG, "No video URI provided")
                       finish()
                       return
+                  }
+
+                  Log.d(TAG, "Video URI: $videoUri (scheme: ${videoUri.scheme})")
+
+                  // Take persistable permission for content URIs
+                  if (videoUri.scheme == "content") {
+                      try {
+                          contentResolver.takePersistableUriPermission(
+                              videoUri,
+                              Intent.FLAG_GRANT_READ_URI_PERMISSION
+                          )
+                          Log.d(TAG, "Took persistable permission")
+                      } catch (e: Exception) {
+                          Log.e(TAG, "Failed to take permission", e)
+                      }
                   }
 
                   viewModel = ViewModelProvider(this)[PlayerViewModel::class.java]
@@ -451,6 +576,7 @@ jobs:
                               AndroidView(
                                   factory = { context ->
                                       MPVView(context).apply {
+                                          Log.d(TAG, "Creating MPVView")
                                           initialize()
                                           surfaceTextureListener = object : android.view.TextureView.SurfaceTextureListener {
                                               override fun onSurfaceTextureAvailable(
@@ -458,6 +584,7 @@ jobs:
                                                   width: Int,
                                                   height: Int
                                               ) {
+                                                  Log.d(TAG, "Surface available, playing video")
                                                   val path = when (videoUri.scheme) {
                                                       "content" -> videoUri.toString()
                                                       "file" -> videoUri.path
@@ -469,10 +596,15 @@ jobs:
                                                   surface: android.graphics.SurfaceTexture,
                                                   width: Int,
                                                   height: Int
-                                              ) {}
+                                              ) {
+                                                  Log.d(TAG, "Surface size changed: $width x $height")
+                                              }
                                               override fun onSurfaceTextureDestroyed(
                                                   surface: android.graphics.SurfaceTexture
-                                              ): Boolean = true
+                                              ): Boolean {
+                                                  Log.d(TAG, "Surface destroyed")
+                                                  return true
+                                              }
                                               override fun onSurfaceTextureUpdated(
                                                   surface: android.graphics.SurfaceTexture
                                               ) {}
@@ -494,13 +626,198 @@ jobs:
 
               override fun onDestroy() {
                   super.onDestroy()
+                  Log.d(TAG, "PlayerActivity destroyed")
                   viewModel.cleanup()
               }
           }
           EOF
 
       # ============================================
-      # GENERATE ANDROID MANIFEST (WITH LAUNCHER)
+      # GENERATE UPDATED PLAYER VIEWMODEL (WITH LOGGING)
+      # ============================================
+      - name: Generate PlayerViewModel.kt
+        run: |
+          cat > app/src/main/java/app/marlboroadvance/mpvrf/PlayerViewModel.kt << 'EOF'
+          package app.marlboroadvance.mpvrf
+
+          import android.util.Log
+          import androidx.lifecycle.ViewModel
+          import androidx.lifecycle.viewModelScope
+          import `is`.xyz.mpv.MPVLib
+          import kotlinx.coroutines.delay
+          import kotlinx.coroutines.flow.MutableStateFlow
+          import kotlinx.coroutines.flow.StateFlow
+          import kotlinx.coroutines.isActive
+          import kotlinx.coroutines.launch
+
+          class PlayerViewModel : ViewModel() {
+              private val TAG = "PlayerViewModel"
+              
+              private val _currentVolume = MutableStateFlow(50)
+              val currentVolume: StateFlow<Int> = _currentVolume
+              val maxVolume = 100
+
+              private val _playbackSpeed = MutableStateFlow(1.0f)
+              val playbackSpeed: StateFlow<Float> = _playbackSpeed
+
+              private val _isPlaying = MutableStateFlow(true)
+              val isPlaying: StateFlow<Boolean> = _isPlaying
+
+              private val _currentTime = MutableStateFlow("00:00")
+              val currentTime: StateFlow<String> = _currentTime
+
+              private val _totalTime = MutableStateFlow("00:00")
+              val totalTime: StateFlow<String> = _totalTime
+
+              private val _position = MutableStateFlow(0f)
+              val position: StateFlow<Float> = _position
+
+              private val _duration = MutableStateFlow(1f)
+              val duration: StateFlow<Float> = _duration
+
+              private val _fileName = MutableStateFlow("Video")
+              val fileName: StateFlow<String> = _fileName
+
+              init {
+                  Log.d(TAG, "Initializing PlayerViewModel")
+                  
+                  try {
+                      // Initialize MPV
+                      MPVLib.setPropertyString("hwdec", "auto")
+                      MPVLib.setPropertyString("vo", "gpu-next")
+                      MPVLib.setPropertyString("profile", "fast")
+                      MPVLib.setPropertyString("cache", "no")
+                      
+                      // Add error listener
+                      MPVLib.addListener(object : MPVLib.Listener {
+                          override fun onEvent(event: String) {
+                              Log.d(TAG, "MPV Event: $event")
+                          }
+                          
+                          override fun onPropertyChange(property: String, value: String) {
+                              Log.d(TAG, "MPV Property: $property = $value")
+                          }
+                      })
+                      
+                      // Get file name from MPV
+                      updateFileName()
+                      
+                      // Start position updates
+                      viewModelScope.launch {
+                          while (isActive) {
+                              try {
+                                  val pos = MPVLib.getPropertyDouble("time-pos") ?: 0.0
+                                  val dur = MPVLib.getPropertyDouble("duration") ?: 1.0
+                                  
+                                  _position.value = pos.toFloat()
+                                  _duration.value = dur.toFloat()
+                                  _currentTime.value = formatTimeSimple(pos)
+                                  _totalTime.value = formatTimeSimple(dur)
+                                  _isPlaying.value = MPVLib.getPropertyBoolean("pause") == false
+                              } catch (e: Exception) {
+                                  Log.e(TAG, "Error updating position", e)
+                              }
+                              delay(100)
+                          }
+                      }
+                      
+                      Log.d(TAG, "PlayerViewModel initialized successfully")
+                  } catch (e: Exception) {
+                      Log.e(TAG, "Error initializing PlayerViewModel", e)
+                  }
+              }
+
+              fun cleanup() {
+                  Log.d(TAG, "Cleaning up PlayerViewModel")
+                  try {
+                      MPVLib.destroy()
+                  } catch (e: Exception) {
+                      Log.e(TAG, "Error during cleanup", e)
+                  }
+              }
+
+              private fun updateFileName() {
+                  try {
+                      val mediaTitle = MPVLib.getPropertyString("media-title")
+                      val path = MPVLib.getPropertyString("path")
+                      _fileName.value = when {
+                          !mediaTitle.isNullOrBlank() -> mediaTitle.substringBeforeLast(".")
+                          !path.isNullOrBlank() -> path.substringAfterLast("/").substringBeforeLast(".")
+                          else -> "Video"
+                      }
+                      Log.d(TAG, "File name: ${_fileName.value}")
+                  } catch (e: Exception) {
+                      Log.e(TAG, "Error updating file name", e)
+                  }
+              }
+
+              fun setVolume(volume: Int) {
+                  val newVolume = volume.coerceIn(0, maxVolume)
+                  _currentVolume.value = newVolume
+                  try {
+                      MPVLib.setPropertyInt("volume", newVolume)
+                  } catch (e: Exception) {
+                      Log.e(TAG, "Error setting volume", e)
+                  }
+              }
+
+              fun adjustVolume(delta: Int) {
+                  setVolume(_currentVolume.value + delta)
+              }
+
+              fun setSpeed(speed: Float) {
+                  _playbackSpeed.value = speed
+                  try {
+                      MPVLib.setPropertyDouble("speed", speed.toDouble())
+                  } catch (e: Exception) {
+                      Log.e(TAG, "Error setting speed", e)
+                  }
+              }
+
+              fun togglePause() {
+                  try {
+                      val isPaused = MPVLib.getPropertyBoolean("pause") ?: false
+                      MPVLib.setPropertyBoolean("pause", !isPaused)
+                      _isPlaying.value = !isPaused
+                  } catch (e: Exception) {
+                      Log.e(TAG, "Error toggling pause", e)
+                  }
+              }
+
+              fun seekTo(position: Double) {
+                  try {
+                      MPVLib.command("seek", position.toString(), "absolute", "exact")
+                  } catch (e: Exception) {
+                      Log.e(TAG, "Error seeking", e)
+                  }
+              }
+
+              fun seekRelative(seconds: Int) {
+                  try {
+                      MPVLib.command("seek", seconds.toString(), "relative", "exact")
+                  } catch (e: Exception) {
+                      Log.e(TAG, "Error seeking relative", e)
+                  }
+              }
+
+              override fun onCleared() {
+                  super.onCleared()
+                  cleanup()
+              }
+          }
+
+          private fun formatTimeSimple(seconds: Double): String {
+              val totalSeconds = seconds.toInt()
+              val hours = totalSeconds / 3600
+              val minutes = (totalSeconds % 3600) / 60
+              val secs = totalSeconds % 60
+              return if (hours > 0) String.format("%02d:%02d:%02d", hours, minutes, secs) 
+                     else String.format("%02d:%02d", minutes, secs)
+          }
+          EOF
+
+      # ============================================
+      # GENERATE ANDROID MANIFEST
       # ============================================
       - name: Generate AndroidManifest.xml
         run: |
@@ -549,14 +866,6 @@ jobs:
                           <data android:scheme="content" />
                           <data android:mimeType="video/*" />
                       </intent-filter>
-                      
-                      <intent-filter>
-                          <action android:name="android.intent.action.VIEW" />
-                          <category android:name="android.intent.category.DEFAULT" />
-                          <data android:scheme="http" />
-                          <data android:scheme="https" />
-                          <data android:mimeType="video/*" />
-                      </intent-filter>
                   </activity>
               </application>
           </manifest>
@@ -588,11 +897,10 @@ jobs:
           EOF
 
       # ============================================
-      # CREATE VECTOR ICON (ALL MIPMAP FOLDERS)
+      # CREATE VECTOR ICON
       # ============================================
       - name: Create vector icon
         run: |
-          # Create vector drawable
           cat > app/src/main/res/drawable/ic_launcher.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -609,7 +917,6 @@ jobs:
           </vector>
           EOF
           
-          # Copy to all mipmap folders
           cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-hdpi/ic_launcher.xml
           cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-mdpi/ic_launcher.xml
           cp app/src/main/res/drawable/ic_launcher.xml app/src/main/res/mipmap-xhdpi/ic_launcher.xml
