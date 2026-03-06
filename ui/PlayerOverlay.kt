@@ -3,7 +3,6 @@ package app.marlboroadvance.mpvrf
 import android.view.MotionEvent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -52,6 +51,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import kotlin.math.abs
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -60,9 +60,11 @@ import androidx.lifecycle.viewModelScope
 import `is`.xyz.mpv.MPVLib
 
 // ============================================
-// PLAYER VIEWMODEL
+// PLAYER VIEWMODEL (UPDATED WITH DEBUG)
 // ============================================
 class PlayerViewModel : ViewModel() {
+    private val TAG = "PlayerViewModel"
+    
     private val _currentVolume = MutableStateFlow(50)
     val currentVolume: StateFlow<Int> = _currentVolume
     val maxVolume = 100
@@ -88,51 +90,169 @@ class PlayerViewModel : ViewModel() {
     private val _fileName = MutableStateFlow("Video")
     val fileName: StateFlow<String> = _fileName
 
+    // Debug state
+    private val _debugLogs = MutableStateFlow<List<String>>(emptyList())
+    val debugLogs: StateFlow<List<String>> = _debugLogs
+    
+    private val _mpvStatus = MutableStateFlow("Initializing...")
+    val mpvStatus: StateFlow<String> = _mpvStatus
+
     init {
-        // Initialize MPV
-        MPVLib.setPropertyString("hwdec", "auto")
-        MPVLib.setPropertyString("vo", "gpu-next")
-        MPVLib.setPropertyString("profile", "fast")
-        MPVLib.setPropertyString("cache", "no")
+        Log.d(TAG, "Initializing PlayerViewModel")
         
-        // Get file name from MPV
-        updateFileName()
+        addDebugLog("ViewModel initialized")
+        _mpvStatus.value = "Loading MPV..."
         
-        // Start position updates
-        viewModelScope.launch {
-            while (isActive) {
-                val pos = MPVLib.getPropertyDouble("time-pos") ?: 0.0
-                val dur = MPVLib.getPropertyDouble("duration") ?: 1.0
+        try {
+            // Initialize MPV with safe options
+            MPVLib.setPropertyString("hwdec", "auto")
+            MPVLib.setPropertyString("vo", "gpu-next")
+            MPVLib.setPropertyString("profile", "fast")
+            MPVLib.setPropertyString("cache", "yes")
+            MPVLib.setPropertyString("cache-secs", "10")
+            
+            addDebugLog("MPV properties set")
+            _mpvStatus.value = "MPV ready"
+            
+            // Add listener for MPV events
+            MPVLib.addListener(object : MPVLib.Listener {
+                override fun onEvent(event: String) {
+                    Log.d(TAG, "MPV Event: $event")
+                    addDebugLog("Event: $event")
+                    
+                    when (event) {
+                        "file-loaded" -> {
+                            _mpvStatus.value = "Video loaded"
+                            addDebugLog("Video loaded successfully")
+                            updateFileName()
+                        }
+                        "playback-restart" -> {
+                            _mpvStatus.value = "Playing"
+                        }
+                        "pause" -> {
+                            _mpvStatus.value = "Paused"
+                        }
+                        "unpause" -> {
+                            _mpvStatus.value = "Playing"
+                        }
+                        "shutdown" -> {
+                            _mpvStatus.value = "Shutdown"
+                        }
+                        "file-error" -> {
+                            _mpvStatus.value = "Error loading file"
+                            addDebugLog("ERROR: File error")
+                        }
+                    }
+                }
                 
-                _position.value = pos.toFloat()
-                _duration.value = dur.toFloat()
-                _currentTime.value = formatTimeSimple(pos)
-                _totalTime.value = formatTimeSimple(dur)
-                _isPlaying.value = MPVLib.getPropertyBoolean("pause") == false
-                
-                delay(100)
+                override fun onPropertyChange(property: String, value: String) {
+                    Log.d(TAG, "MPV Property: $property = $value")
+                    addDebugLog("Prop: $property = $value")
+                }
+            })
+            
+            addDebugLog("MPV listener added")
+            
+            // Start position updates
+            viewModelScope.launch {
+                var errorCount = 0
+                while (isActive) {
+                    try {
+                        val pos = MPVLib.getPropertyDouble("time-pos")
+                        val dur = MPVLib.getPropertyDouble("duration")
+                        
+                        if (pos != null && dur != null && dur > 0) {
+                            _position.value = pos.toFloat()
+                            _duration.value = dur.toFloat()
+                            _currentTime.value = formatTimeSimple(pos)
+                            _totalTime.value = formatTimeSimple(dur)
+                            
+                            val paused = MPVLib.getPropertyBoolean("pause")
+                            _isPlaying.value = paused == false
+                            
+                            errorCount = 0 // Reset error count on success
+                        } else {
+                            errorCount++
+                            if (errorCount > 50) { // About 5 seconds of failures
+                                addDebugLog("WARNING: No position/duration data")
+                                errorCount = 0
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error updating position", e)
+                        addDebugLog("Error: ${e.message}")
+                    }
+                    delay(100)
+                }
             }
+            
+            addDebugLog("Position updates started")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing PlayerViewModel", e)
+            _mpvStatus.value = "Error: ${e.message}"
+            addDebugLog("INIT ERROR: ${e.message}")
+        }
+    }
+
+    fun addDebugLog(message: String) {
+        val timestamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+        viewModelScope.launch {
+            val currentLogs = _debugLogs.value.toMutableList()
+            currentLogs.add("[$timestamp] $message")
+            if (currentLogs.size > 10) {
+                currentLogs.removeAt(0)
+            }
+            _debugLogs.value = currentLogs
         }
     }
 
     fun cleanup() {
-        MPVLib.destroy()
+        Log.d(TAG, "Cleaning up PlayerViewModel")
+        addDebugLog("Cleaning up")
+        try {
+            MPVLib.destroy()
+            addDebugLog("MPV destroyed")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during cleanup", e)
+            addDebugLog("Cleanup error: ${e.message}")
+        }
     }
 
     private fun updateFileName() {
-        val mediaTitle = MPVLib.getPropertyString("media-title")
-        val path = MPVLib.getPropertyString("path")
-        _fileName.value = when {
-            !mediaTitle.isNullOrBlank() -> mediaTitle.substringBeforeLast(".")
-            !path.isNullOrBlank() -> path.substringAfterLast("/").substringBeforeLast(".")
-            else -> "Video"
+        try {
+            val mediaTitle = MPVLib.getPropertyString("media-title")
+            val path = MPVLib.getPropertyString("path")
+            _fileName.value = when {
+                !mediaTitle.isNullOrBlank() -> {
+                    addDebugLog("Title: $mediaTitle")
+                    mediaTitle.substringBeforeLast(".")
+                }
+                !path.isNullOrBlank() -> {
+                    addDebugLog("Path: $path")
+                    path.substringAfterLast("/").substringBeforeLast(".")
+                }
+                else -> {
+                    addDebugLog("No title/path found")
+                    "Video"
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating file name", e)
+            addDebugLog("Filename error: ${e.message}")
         }
     }
 
     fun setVolume(volume: Int) {
         val newVolume = volume.coerceIn(0, maxVolume)
         _currentVolume.value = newVolume
-        MPVLib.setPropertyInt("volume", newVolume)
+        try {
+            MPVLib.setPropertyInt("volume", newVolume)
+            addDebugLog("Volume: $newVolume")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting volume", e)
+            addDebugLog("Volume error: ${e.message}")
+        }
     }
 
     fun adjustVolume(delta: Int) {
@@ -141,26 +261,50 @@ class PlayerViewModel : ViewModel() {
 
     fun setSpeed(speed: Float) {
         _playbackSpeed.value = speed
-        MPVLib.setPropertyDouble("speed", speed.toDouble())
+        try {
+            MPVLib.setPropertyDouble("speed", speed.toDouble())
+            addDebugLog("Speed: ${speed}x")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting speed", e)
+            addDebugLog("Speed error: ${e.message}")
+        }
     }
 
     fun togglePause() {
-        val isPaused = MPVLib.getPropertyBoolean("pause") ?: false
-        MPVLib.setPropertyBoolean("pause", !isPaused)
-        _isPlaying.value = !isPaused
+        try {
+            val isPaused = MPVLib.getPropertyBoolean("pause") ?: false
+            MPVLib.setPropertyBoolean("pause", !isPaused)
+            _isPlaying.value = !isPaused
+            addDebugLog(if (!isPaused) "Paused" else "Playing")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error toggling pause", e)
+            addDebugLog("Pause error: ${e.message}")
+        }
     }
 
     fun seekTo(position: Double) {
-        MPVLib.command("seek", position.toString(), "absolute", "exact")
+        try {
+            MPVLib.command("seek", position.toString(), "absolute", "exact")
+            addDebugLog("Seek to: ${formatTimeSimple(position)}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error seeking", e)
+            addDebugLog("Seek error: ${e.message}")
+        }
     }
 
     fun seekRelative(seconds: Int) {
-        MPVLib.command("seek", seconds.toString(), "relative", "exact")
+        try {
+            MPVLib.command("seek", seconds.toString(), "relative", "exact")
+            addDebugLog("Seek: $seconds seconds")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error seeking relative", e)
+            addDebugLog("Seek error: ${e.message}")
+        }
     }
 
     override fun onCleared() {
         super.onCleared()
-        MPVLib.destroy()
+        cleanup()
     }
 }
 
@@ -168,6 +312,7 @@ class PlayerViewModel : ViewModel() {
 // FORMAT TIME FUNCTION
 // ============================================
 private fun formatTimeSimple(seconds: Double): String {
+    if (seconds <= 0) return "00:00"
     val totalSeconds = seconds.toInt()
     val hours = totalSeconds / 3600
     val minutes = (totalSeconds % 3600) / 60
@@ -177,7 +322,7 @@ private fun formatTimeSimple(seconds: Double): String {
 }
 
 // ============================================
-// PROGRESS BAR USING MATERIAL3 SLIDER
+// PROGRESS BAR
 // ============================================
 @Composable
 fun SimpleDraggableProgressBar(
@@ -223,9 +368,40 @@ fun SimpleDraggableProgressBar(
 }
 
 // ============================================
-// PLAYER OVERLAY - WITH MULTIPLE OPTIN ANNOTATIONS
+// DEBUG OVERLAY COMPOSABLE
 // ============================================
-@OptIn(ExperimentalFoundationApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun DebugOverlay(
+    logs: List<String>,
+    status: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .background(Color.Black.copy(alpha = 0.7f))
+            .padding(8.dp)
+    ) {
+        Text(
+            text = "📊 MPV Status: $status",
+            color = Color.Cyan,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold
+        )
+        logs.reversed().forEach { log ->
+            Text(
+                text = log,
+                color = Color.White,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(vertical = 1.dp)
+            )
+        }
+    }
+}
+
+// ============================================
+// PLAYER OVERLAY (UPDATED WITH DEBUG)
+// ============================================
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PlayerOverlay(
     viewModel: PlayerViewModel,
@@ -239,6 +415,8 @@ fun PlayerOverlay(
     val currentPosition by viewModel.position.collectAsState()
     val videoDuration by viewModel.duration.collectAsState()
     val fileName by viewModel.fileName.collectAsState()
+    val debugLogs by viewModel.debugLogs.collectAsState()
+    val mpvStatus by viewModel.mpvStatus.collectAsState()
     
     // Local UI state
     var seekTargetTime by remember { mutableStateOf("00:00") }
@@ -246,6 +424,7 @@ fun PlayerOverlay(
     var isSpeedingUp by remember { mutableStateOf(false) }
     var isPausing by remember { mutableStateOf(false) }
     var showSeekbar by remember { mutableStateOf(true) }
+    var showDebug by remember { mutableStateOf(true) } // Start with debug visible
     
     var seekbarPosition by remember { mutableStateOf(0f) }
     var seekbarDuration by remember { mutableStateOf(1f) }
@@ -287,7 +466,7 @@ fun PlayerOverlay(
     val maxHorizontalMovement = 50f
     val quickSeekAmount = 5
 
-    // ========== UI HELPER FUNCTIONS - DEFINED EARLY FOR VISIBILITY ==========
+    // ========== UI HELPER FUNCTIONS ==========
     fun scheduleSeekbarHide() {
         coroutineScope.launch {
             delay(4000)
@@ -646,6 +825,18 @@ fun PlayerOverlay(
             )
         }
         
+        // DEBUG OVERLAY - Top Right (only when showDebug is true)
+        if (showDebug) {
+            DebugOverlay(
+                logs = debugLogs,
+                status = mpvStatus,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+                    .width(200.dp)
+            )
+        }
+        
         // FEEDBACK AREA
         Box(
             modifier = Modifier
@@ -689,6 +880,22 @@ fun PlayerOverlay(
                         .padding(8.dp)
                 )
             }
+        }
+        
+        // DEBUG TOGGLE BUTTON - Bottom Right
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+                .clickable { showDebug = !showDebug }
+                .background(Color.DarkGray.copy(alpha = 0.8f))
+                .padding(8.dp)
+        ) {
+            Text(
+                text = if (showDebug) "🔍 Hide Debug" else "🔍 Show Debug",
+                color = Color.White,
+                fontSize = 12.sp
+            )
         }
     }
 }
